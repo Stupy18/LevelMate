@@ -1,0 +1,24 @@
+# Maven build output
+backend/target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Spring Boot
+*.jar
+*.war
+*.class
+
+# Secrets (never commit these)
+*.env
+application-prod.yaml
+application-secret.yaml
+
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json

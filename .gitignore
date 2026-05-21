@@ -1,0 +1,11 @@
+# Local env — machine-specific, never commit
+.env
+!LevelMate/.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/

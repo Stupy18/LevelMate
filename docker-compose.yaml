@@ -1,0 +1,20 @@
+# Root orchestrator — run `docker compose up` here to start all LevelMate services.
+#
+# Services:
+#   postgres  — PostgreSQL 16 (port 5433)
+#   backend   — Spring Boot API (port 8080)
+#   expo      — Expo Metro bundler (port 8081)
+#
+# Quick start:
+#   docker compose up --build        # first run or after code changes
+#   docker compose up                # subsequent runs
+#   docker compose down              # stop all
+#   docker compose down -v           # stop + wipe volumes
+#
+# Physical device (Expo Go):
+#   HOST_IP=192.168.x.x docker compose up
+#   Then open Expo Go and connect to exp://<HOST_IP>:8081
+
+include:
+  - path: ./backend/backend/compose.yaml
+  - path: ./LevelMate/compose.yaml
