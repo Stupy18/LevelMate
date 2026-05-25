@@ -187,6 +187,38 @@ resources/db/migration/
 
 ---
 
+### users — profile endpoints — DONE
+
+**Additional endpoints added to users module:**
+- `GET /api/v1/users/{userId}/profile` — full profile: displayName, avatarData, sports[], coachProfiles[]
+- `PATCH /api/v1/users/me/profile` — update displayName and/or avatarData (null avatarData clears it)
+- `GET /api/v1/users/me/active-sessions` — sessions with status OPEN/FULL/IN_PROGRESS for the calling user
+- `GET /api/v1/users/me/pending-results` — completed ELO sessions awaiting result report/confirm/dispute
+
+**Files added/updated:**
+```
+users/
+  controller/UserProfileController.java   (GET /{userId}/profile, PATCH /me/profile, GET /me/active-sessions, GET /me/pending-results)
+  service/UserProfileService.java         (getProfile, updateProfile)
+  dto/UserProfileResponse.java            (userId, displayName, avatarUrl, avatarData, sports[], coachProfiles[])
+  dto/UpdateProfileRequest.java           (displayName?, avatarData?)
+auth/
+  entity/User.java                        (added avatarData TEXT field)
+  dto/RegisterRequest.java                (added optional avatarData field)
+  service/AuthService.java                (passes avatarData to User builder)
+games/
+  dto/PendingResultResponse.java          (sessionId, title, sportName, sportSlug, scheduledAt, pendingType, locationName, participantCount)
+resources/db/migration/
+  V17__add_avatar_data_to_users.sql       (ALTER TABLE users ADD COLUMN avatar_data TEXT)
+```
+
+**Key notes:**
+- `updateProfile` splits `displayName` on last space → firstName/lastName; null `avatarData` explicitly clears the field
+- `getPendingResults` always loads participants first (to get `participantCount`), then checks result status
+- `PendingResultResponse` includes `locationName` (from GameSession) and `participantCount` (from participant list size)
+
+---
+
 ### games — DONE (openspec change: `game-session`)
 
 **Endpoints:**
@@ -196,72 +228,69 @@ resources/db/migration/
 - `PATCH /api/v1/game-sessions/{sessionId}/status` — HOST-only; CANCELLED or COMPLETED (200)
 - `POST /api/v1/game-sessions/{sessionId}/join` — join OPEN session, level-range checked (200)
 - `POST /api/v1/game-sessions/{sessionId}/leave` — leave OPEN/FULL session, non-HOST only (204)
+- `POST /api/v1/game-sessions/{sessionId}/assign-team` — assign participant to TEAM_A/TEAM_B (200)
 - `POST /api/v1/game-sessions/{sessionId}/result` — report result (201); COMPLETED + ELO_COMPETITIVE only
 - `GET /api/v1/game-sessions/{sessionId}/result` — get result (200)
-- `POST /api/v1/game-sessions/{sessionId}/result/confirm` — confirm result, triggers ELO stub (200)
+- `POST /api/v1/game-sessions/{sessionId}/result/confirm` — confirm result, triggers ELO (200)
 - `POST /api/v1/game-sessions/{sessionId}/result/dispute` — dispute result (200)
 
 **Files created:**
 ```
 games/
-  entity/SessionStatus.java      (OPEN, FULL, CANCELLED, COMPLETED)
+  entity/SessionStatus.java      (OPEN, FULL, IN_PROGRESS, CANCELLED, COMPLETED)
   entity/ParticipantRole.java    (HOST, PLAYER)
   entity/TeamSide.java           (TEAM_A, TEAM_B)
   entity/WinnerTeam.java         (TEAM_A, TEAM_B, DRAW)
   entity/ResultStatus.java       (PENDING_CONFIRMATION, CONFIRMED, DISPUTED)
-  entity/GameSession.java        (BigDecimal lat/lng, @Enumerated(STRING) status)
+  entity/GameSession.java        (BigDecimal lat/lng, locationName, locationAddress, googlePlaceId)
   entity/GameParticipant.java    (ManyToOne session+user, @Enumerated role/team)
   entity/GameResult.java         (OneToOne session, two ManyToOne user reporter/confirmer)
-  repository/GameSessionRepository.java     (searchOpen @Query with bounding-box)
+  entity/ResultVote.java         (ManyToOne result+user, @Enumerated VoteType)
+  entity/VoteType.java           (CONFIRM, DISPUTE)
+  repository/GameSessionRepository.java     (searchOpen @Query with bounding-box, findCompletedEloSessionsForUser)
   repository/GameParticipantRepository.java (findAllBySessionId, existsBy, countBy, deleteBy)
   repository/GameResultRepository.java      (findBySessionId)
+  repository/ResultVoteRepository.java      (existsByResultIdAndUserId)
   dto/CreateGameSessionRequest.java
   dto/UpdateSessionStatusRequest.java       (@Pattern CANCELLED|COMPLETED)
+  dto/AssignTeamRequest.java                (userId, team)
   dto/ReportResultRequest.java
+  dto/PendingResultResponse.java            (sessionId, title, sportName, sportSlug, scheduledAt, pendingType, locationName, participantCount)
   dto/GameSessionResponse.java              (participantCount, spotsRemaining, participants list)
   dto/GameParticipantResponse.java
   dto/GameResultResponse.java
   dto/GameSessionSearchParams.java
-  service/EloService.java                   (stub: logs "ELO update pending for session {}")
-  service/GameSessionService.java           (createSession, getSession, searchSessions)
+  service/GameSessionService.java           (createSession, getSession, searchSessions, getPendingResults, getActiveSessionsForUser)
   service/GameSessionStatusService.java     (updateStatus: HOST-only, valid transitions)
-  service/GameParticipationService.java     (joinSession, leaveSession)
+  service/GameParticipationService.java     (joinSession, leaveSession, assignTeam)
   service/GameResultService.java            (reportResult, confirmResult, disputeResult, getResult)
+  service/SessionStatusScheduler.java       (@Scheduled auto-transitions sessions to IN_PROGRESS)
   controller/GameSessionController.java
   controller/GameSessionStatusController.java
   controller/GameParticipationController.java
   controller/GameResultController.java
 common/exception/
-  SessionNotFoundException.java
-  SportNotOnProfileException.java
-  InvalidScheduledDateException.java
-  SessionFullException.java
-  AlreadyJoinedException.java
-  LevelOutOfRangeException.java
-  HostCannotLeaveException.java
-  NotAParticipantException.java
-  InvalidStatusTransitionException.java
-  SessionNotYetPlayedException.java
-  SessionNotOpenException.java
-  ResultAlreadyReportedException.java
-  SessionNotCompletedException.java
-  SportNotEloCompetitiveException.java
-  ResultNotFoundException.java
-  InvalidResultStatusException.java
-  CannotConfirmOwnReportException.java
+  SessionNotFoundException.java + 17 others
+  TeamsNotBalancedException.java
+  TimeConflictException.java
 resources/db/migration/
   V7__create_game_sessions_table.sql
   V8__create_game_participants_table.sql
   V9__create_game_results_table.sql
-  V10__add_level_to_user_sports.sql   (adds nullable level INT to user_sports for join level-range check)
+  V10__add_level_to_user_sports.sql
+  V13__add_google_place_fields_to_game_sessions.sql  (locationName, locationAddress, googlePlaceId, googlePhotoReference)
+  V14__add_in_progress_session_status.sql            (adds IN_PROGRESS to status CHECK constraint)
+  V15__convert_elo_to_decimal.sql                    (elo_rating column → DECIMAL)
+  V16__create_result_votes_table.sql                 (result_votes: result_id FK, user_id FK, vote_type)
 ```
 
 **Key notes:**
-- Session status machine: OPEN → FULL (auto on max join) / CANCELLED / COMPLETED (HOST sets, scheduledAt must be past)
-- Result flow: PENDING_CONFIRMATION → CONFIRMED (non-reporter confirms) / DISPUTED (non-reporter disputes)
+- Session status machine: OPEN → FULL (auto on max join) / IN_PROGRESS (auto via scheduler) / CANCELLED / COMPLETED (HOST sets)
+- `SessionStatusScheduler` auto-transitions OPEN/FULL sessions to IN_PROGRESS when `scheduledAt` is reached
+- Result flow: PENDING_CONFIRMATION → CONFIRMED (non-reporter confirms) / DISPUTED (non-reporter disputes); votes tracked in `result_votes`
 - Bounding-box search: latDelta = radiusKm / 111.0; lngDelta adjusted for longitude compression
-- ELO updates now real — `EloService.onResultConfirmed(sessionId, winner)` in `elo/service/` dispatches to `EloCalculationService` async
-- UserSport.level (1-10) added via V10 migration; used only for join level-range enforcement
+- ELO updates real — `EloService.onResultConfirmed(sessionId, winner)` dispatches to `EloCalculationService` async
+- `getPendingResults` always loads participants first (for count + team check), then checks result status
 - Cross-module: GameParticipationService injects UserSportRepository directly (modular monolith pattern)
 
 ---
@@ -278,7 +307,8 @@ elo/
   entity/EloHistory.java          (ManyToOne to User, Sport, GameSession)
   repository/EloHistoryRepository.java
   service/EloService.java         (delegates to EloCalculationService)
-  service/EloCalculationService.java  (@Async("eloTaskExecutor") @Transactional, two-layer formula)
+  service/EloCalculationService.java      (@Async("eloTaskExecutor"), two-layer formula)
+  service/EloTransactionalService.java    (@Transactional inner bean — avoids self-invocation proxy issue)
   service/EloQueryService.java    (history + leaderboard queries, ownership check)
   controller/EloHistoryController.java
   controller/EloLeaderboardController.java
@@ -384,6 +414,29 @@ resources/db/migration/
 | `elo/dto/EloHistoryPageResponse.java` | Done | currentElo, gamesPlayed, history list, pagination metadata |
 | `elo/dto/LeaderboardEntryResponse.java` | Done | userId, displayName (firstName+lastName), elo, gamesPlayed |
 | `games/service/GameResultService.java` | Done | Updated: imports elo.EloService, passes WinnerTeam to onResultConfirmed |
+| `games/entity/ResultVote.java` | Done | ManyToOne result+user, VoteType enum |
+| `games/entity/VoteType.java` | Done | CONFIRM, DISPUTE |
+| `games/entity/SessionStatus.java` | Done | Added IN_PROGRESS value |
+| `games/repository/ResultVoteRepository.java` | Done | existsByResultIdAndUserId |
+| `games/dto/AssignTeamRequest.java` | Done | userId + team (TEAM_A/TEAM_B) |
+| `games/dto/PendingResultResponse.java` | Done | Includes locationName + participantCount |
+| `games/service/SessionStatusScheduler.java` | Done | @Scheduled auto-transitions to IN_PROGRESS |
+| `games/service/GameSessionService.java` | Done | Added getPendingResults (loads participants first), getActiveSessionsForUser |
+| `common/exception/TeamsNotBalancedException.java` | Done | |
+| `common/exception/TimeConflictException.java` | Done | |
+| `db/migration/V13__add_google_place_fields_to_game_sessions.sql` | Done | locationName, locationAddress, googlePlaceId, googlePhotoReference |
+| `db/migration/V14__add_in_progress_session_status.sql` | Done | Adds IN_PROGRESS to status CHECK |
+| `db/migration/V15__convert_elo_to_decimal.sql` | Done | elo_rating → DECIMAL |
+| `db/migration/V16__create_result_votes_table.sql` | Done | result_votes table |
+| `db/migration/V17__add_avatar_data_to_users.sql` | Done | avatar_data TEXT column on users |
+| `auth/entity/User.java` | Done | Added avatarData TEXT field |
+| `auth/dto/RegisterRequest.java` | Done | Added optional avatarData field |
+| `auth/service/AuthService.java` | Done | Passes avatarData to User builder |
+| `users/controller/UserProfileController.java` | Done | GET /{userId}/profile, PATCH /me/profile, GET /me/active-sessions, GET /me/pending-results |
+| `users/service/UserProfileService.java` | Done | getProfile, updateProfile (splits displayName → firstName/lastName) |
+| `users/dto/UserProfileResponse.java` | Done | Added avatarData field |
+| `users/dto/UpdateProfileRequest.java` | Done | displayName?, avatarData? |
+| `elo/service/EloTransactionalService.java` | Done | Inner @Transactional bean to avoid @Async self-invocation proxy issue |
 
 ---
 
@@ -432,9 +485,11 @@ See `LevelMate/CLAUDE.md` for the full mobile guide.
 
 **API contract notes (things the mobile client depends on):**
 - `GameSessionResponse` has flat `sportId`/`sportName` — NOT a nested sport object; don't change this without updating the mobile client
-- `UserProfileResponse` shape: `{ userId, displayName, avatarUrl, sports[], coachProfiles[] }` — mobile auth store depends on this
+- `UserProfileResponse` shape: `{ userId, displayName, avatarUrl, avatarData, sports[], coachProfiles[] }` — mobile auth store depends on this
 - `AuthResponse` does NOT include userId — mobile decodes the JWT `sub` claim client-side
 - `GET /api/v1/game-sessions/{id}/result` must return 404 (not 200 with null) when no result exists — mobile catches this as "no result"
+- `PendingResultResponse` must include `locationName` and `participantCount` — mobile sheet card displays both
+- `PATCH /api/v1/users/me/profile` — null `avatarData` in body clears the avatar; omitting the field does NOT clear it (record semantics)
 
 ---
 
