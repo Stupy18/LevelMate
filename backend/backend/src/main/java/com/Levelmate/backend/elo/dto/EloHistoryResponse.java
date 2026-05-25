@@ -7,9 +7,9 @@ import java.util.UUID;
 
 public record EloHistoryResponse(
         UUID sessionId,
-        int eloBefore,
-        int eloDelta,
-        int eloAfter,
+        double eloBefore,
+        double eloDelta,
+        double eloAfter,
         Instant recordedAt
 ) {
     public static EloHistoryResponse from(EloHistory h) {

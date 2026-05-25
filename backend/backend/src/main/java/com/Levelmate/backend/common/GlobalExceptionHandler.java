@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -202,5 +203,29 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<Map<String, String>> handleUserNotFound(UserNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(Map.of("errorCode", "USER_NOT_FOUND", "message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(TeamsNotBalancedException.class)
+    public ResponseEntity<Map<String, String>> handleTeamsNotBalanced(TeamsNotBalancedException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(Map.of("errorCode", "TEAMS_NOT_BALANCED", "message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(TimeConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleTimeConflict(TimeConflictException ex) {
+        Map<String, Object> conflictingSession = new LinkedHashMap<>();
+        conflictingSession.put("id", ex.getConflictingSessionId());
+        conflictingSession.put("title", ex.getConflictingSessionTitle());
+        conflictingSession.put("scheduledAt", ex.getConflictingScheduledAt().toString());
+        conflictingSession.put("durationMinutes", ex.getConflictingDurationMinutes());
+        conflictingSession.put("sportName", ex.getConflictingSportName());
+        conflictingSession.put("locationName", ex.getConflictingLocationName());
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("errorCode", "TIME_CONFLICT");
+        body.put("message", ex.getMessage());
+        body.put("conflictingSession", conflictingSession);
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 }

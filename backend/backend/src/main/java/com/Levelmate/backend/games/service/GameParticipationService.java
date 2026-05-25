@@ -7,6 +7,7 @@ import com.Levelmate.backend.games.entity.GameParticipant;
 import com.Levelmate.backend.games.entity.GameSession;
 import com.Levelmate.backend.games.entity.ParticipantRole;
 import com.Levelmate.backend.games.entity.SessionStatus;
+import com.Levelmate.backend.games.entity.TeamSide;
 import com.Levelmate.backend.games.repository.GameParticipantRepository;
 import com.Levelmate.backend.games.repository.GameSessionRepository;
 import com.Levelmate.backend.users.repository.UserSportRepository;
@@ -16,6 +17,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -55,11 +58,19 @@ public class GameParticipationService {
                     }
                 });
 
+        gameSessionService.checkTimeConflict(userId, session.getScheduledAt(), session.getDurationMinutes(), session.getId());
+
+        List<GameParticipant> existing = gameParticipantRepository.findAllBySessionId(sessionId);
+        long teamACount = existing.stream().filter(p -> p.getTeam() == TeamSide.TEAM_A).count();
+        long teamBCount = existing.stream().filter(p -> p.getTeam() == TeamSide.TEAM_B).count();
+        TeamSide autoTeam = (teamACount <= teamBCount) ? TeamSide.TEAM_A : TeamSide.TEAM_B;
+
         User user = currentUser();
         GameParticipant participant = GameParticipant.builder()
                 .session(session)
                 .user(user)
                 .role(ParticipantRole.PLAYER)
+                .team(autoTeam)
                 .build();
         gameParticipantRepository.save(participant);
 
@@ -96,6 +107,31 @@ public class GameParticipationService {
             session.setStatus(SessionStatus.OPEN);
             gameSessionRepository.save(session);
         }
+    }
+
+    @Transactional
+    public void assignTeam(UUID sessionId, UUID requestorId, UUID targetUserId, String teamStr) {
+        GameSession session = gameSessionRepository.findById(sessionId)
+                .orElseThrow(SessionNotFoundException::new);
+
+        if (!session.getHost().getId().equals(requestorId)) {
+            throw new ForbiddenException();
+        }
+
+        if (session.getScheduledAt().isBefore(Instant.now())
+                || session.getStatus() == SessionStatus.IN_PROGRESS
+                || session.getStatus() == SessionStatus.COMPLETED
+                || session.getStatus() == SessionStatus.CANCELLED) {
+            throw new ForbiddenException("Team assignments are locked once the game has started.");
+        }
+
+        GameParticipant participant = gameParticipantRepository
+                .findBySessionIdAndUserId(sessionId, targetUserId)
+                .orElseThrow(NotAParticipantException::new);
+
+        TeamSide team = (teamStr == null || teamStr.isBlank()) ? null : TeamSide.valueOf(teamStr);
+        participant.setTeam(team);
+        gameParticipantRepository.save(participant);
     }
 
     private User currentUser() {

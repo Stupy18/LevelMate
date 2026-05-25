@@ -37,13 +37,13 @@ public class EloHistory {
     private GameSession session;
 
     @Column(name = "elo_before", nullable = false)
-    private int eloBefore;
+    private double eloBefore;
 
     @Column(name = "elo_delta", nullable = false)
-    private int eloDelta;
+    private double eloDelta;
 
     @Column(name = "elo_after", nullable = false)
-    private int eloAfter;
+    private double eloAfter;
 
     @Column(name = "recorded_at", nullable = false, updatable = false)
     private Instant recordedAt;

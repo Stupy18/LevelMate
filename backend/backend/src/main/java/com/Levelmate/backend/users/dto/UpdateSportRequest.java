@@ -1,7 +1,7 @@
 package com.Levelmate.backend.users.dto;
 
 public record UpdateSportRequest(
-        Integer eloRating,
+        Double eloRating,
         String grade,
         Integer level
 ) {}

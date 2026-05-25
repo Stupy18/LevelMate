@@ -14,6 +14,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -33,7 +34,7 @@ public class GameSessionController {
 
     @GetMapping
     public ResponseEntity<Page<GameSessionResponse>> searchSessions(
-            @RequestParam(required = false) UUID sportId,
+            @RequestParam(required = false) List<UUID> sportIds,
             @RequestParam(required = false) BigDecimal lat,
             @RequestParam(required = false) BigDecimal lng,
             @RequestParam(required = false) Double radiusKm,
@@ -42,12 +43,20 @@ public class GameSessionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         GameSessionSearchParams params = new GameSessionSearchParams(
-                sportId, lat, lng, radiusKm, minLevel, maxLevel, page, size);
+                sportIds, lat, lng, radiusKm, minLevel, maxLevel, page, size);
         return ResponseEntity.ok(gameSessionService.searchSessions(params));
     }
 
     @GetMapping("/{sessionId}")
     public ResponseEntity<GameSessionResponse> getSession(@PathVariable UUID sessionId) {
         return ResponseEntity.ok(gameSessionService.getSession(sessionId));
+    }
+
+    @GetMapping("/by-participant/{userId}")
+    public ResponseEntity<Page<GameSessionResponse>> getSessionsByParticipant(
+            @PathVariable UUID userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(gameSessionService.getSessionsByParticipant(userId, page, size));
     }
 }

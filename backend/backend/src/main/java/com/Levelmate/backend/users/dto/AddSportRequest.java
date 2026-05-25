@@ -7,7 +7,7 @@ import java.util.UUID;
 public record AddSportRequest(
         @NotNull(message = "sportId is required")
         UUID sportId,
-        Integer eloRating,
+        Double eloRating,
         String grade,
         Integer level
 ) {}

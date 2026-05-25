@@ -44,6 +44,9 @@ public class User implements UserDetails {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "avatar_data", columnDefinition = "TEXT")
+    private String avatarData;
+
     @PrePersist
     void prePersist() {
         createdAt = updatedAt = Instant.now();

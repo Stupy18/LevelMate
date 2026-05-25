@@ -10,7 +10,7 @@ public record SportEntryResponse(
         UUID sportId,
         String sportName,
         RatingType ratingType,
-        Integer eloRating,
+        Double eloRating,
         String grade,
         Integer level
 ) {

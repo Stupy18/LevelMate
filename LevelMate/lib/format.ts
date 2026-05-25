@@ -6,8 +6,9 @@ export function formatSessionDate(iso: string): string {
 }
 
 export function formatEloDelta(n: number): string {
-  if (n === 0) return '±0';
-  return n > 0 ? `+${n}` : `${n}`;
+  const rounded = Number(n.toFixed(1));
+  if (rounded === 0) return '±0';
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
 }
 
 export function formatDuration(minutes: number): string {

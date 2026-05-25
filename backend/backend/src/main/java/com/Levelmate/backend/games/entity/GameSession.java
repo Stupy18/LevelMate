@@ -72,6 +72,12 @@ public class GameSession {
     @Column(name = "location_name", length = 200)
     private String locationName;
 
+    @Column(name = "google_place_id", length = 500)
+    private String googlePlaceId;
+
+    @Column(name = "google_photo_reference", length = 500)
+    private String googlePhotoReference;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

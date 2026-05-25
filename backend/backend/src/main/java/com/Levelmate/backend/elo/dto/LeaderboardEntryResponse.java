@@ -7,7 +7,7 @@ import java.util.UUID;
 public record LeaderboardEntryResponse(
         UUID userId,
         String displayName,
-        int elo,
+        double elo,
         int gamesPlayed
 ) {
     public static LeaderboardEntryResponse from(UserSport us) {

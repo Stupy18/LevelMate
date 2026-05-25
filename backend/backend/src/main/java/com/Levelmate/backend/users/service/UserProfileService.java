@@ -3,6 +3,7 @@ package com.Levelmate.backend.users.service;
 import com.Levelmate.backend.auth.entity.User;
 import com.Levelmate.backend.auth.repository.UserRepository;
 import com.Levelmate.backend.common.exception.UserNotFoundException;
+import com.Levelmate.backend.users.dto.UpdateProfileRequest;
 import com.Levelmate.backend.users.dto.UserProfileResponse;
 import com.Levelmate.backend.users.repository.CoachProfileRepository;
 import com.Levelmate.backend.users.repository.UserSportRepository;
@@ -39,8 +40,31 @@ public class UserProfileService {
                 user.getId(),
                 user.getFirstName() + " " + user.getLastName(),
                 null,
+                user.getAvatarData(),
                 sports,
                 coachProfiles
         );
+    }
+
+    @Transactional
+    public UserProfileResponse updateProfile(UUID userId, UpdateProfileRequest req) {
+        User user = userRepository.findById(userId).orElseThrow(UserNotFoundException::new);
+
+        if (req.displayName() != null && !req.displayName().isBlank()) {
+            String name = req.displayName().trim();
+            int idx = name.lastIndexOf(' ');
+            if (idx > 0) {
+                user.setFirstName(name.substring(0, idx));
+                user.setLastName(name.substring(idx + 1));
+            } else {
+                user.setFirstName(name);
+                user.setLastName("");
+            }
+        }
+
+        // avatarData: null clears the avatar, non-null string sets/replaces it
+        user.setAvatarData(req.avatarData());
+        userRepository.save(user);
+        return getProfile(userId);
     }
 }

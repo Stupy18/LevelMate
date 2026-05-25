@@ -10,6 +10,7 @@ import java.util.UUID;
 public record GameParticipantResponse(
         UUID participantId,
         UUID userId,
+        String displayName,
         ParticipantRole role,
         TeamSide team,
         Instant joinedAt
@@ -18,6 +19,7 @@ public record GameParticipantResponse(
         return new GameParticipantResponse(
                 p.getId(),
                 p.getUser().getId(),
+                p.getUser().getFirstName() + " " + p.getUser().getLastName(),
                 p.getRole(),
                 p.getTeam(),
                 p.getJoinedAt()

@@ -1,10 +1,11 @@
 package com.Levelmate.backend.games.dto;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 public record GameSessionSearchParams(
-        UUID sportId,
+        List<UUID> sportIds,
         BigDecimal lat,
         BigDecimal lng,
         Double radiusKm,

@@ -31,7 +31,7 @@ public class UserSport {
     private Sport sport;
 
     @Column(name = "elo_rating")
-    private Integer eloRating;
+    private Double eloRating;
 
     @Column(name = "grade")
     private String grade;

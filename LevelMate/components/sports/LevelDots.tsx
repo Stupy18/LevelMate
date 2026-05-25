@@ -10,7 +10,7 @@ export default function LevelDots({ level, total = 10 }: { level: number; total?
             width: 7,
             height: 7,
             borderRadius: 3.5,
-            backgroundColor: i < level ? '#6C47FF' : '#2A2A3A',
+            backgroundColor: i < level ? '#6C47FF' : '#E5E7EB',
           }}
         />
       ))}

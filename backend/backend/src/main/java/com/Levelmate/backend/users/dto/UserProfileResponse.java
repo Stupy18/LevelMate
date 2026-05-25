@@ -11,6 +11,7 @@ public record UserProfileResponse(
         UUID userId,
         String displayName,
         String avatarUrl,
+        String avatarData,
         List<SportSummary> sports,
         List<CoachProfileSummary> coachProfiles
 ) {
@@ -18,7 +19,7 @@ public record UserProfileResponse(
             UUID sportId,
             String sportName,
             RatingType ratingType,
-            Integer eloRating,
+            Double eloRating,
             int gamesPlayed,
             String grade,
             Integer level

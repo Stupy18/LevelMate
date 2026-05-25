@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -12,11 +12,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Bell, ChevronRight, Compass, MapPin, TrendingUp } from 'lucide-react-native';
 import SessionCard from '../../components/sessions/SessionCard';
 import SportChip from '../../components/sports/SportChip';
 import api from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
-import type { GameSession } from '../../types';
+import type { GameSession, UserProfile } from '../../types';
 
 const PAGE_SIZE = 20;
 
@@ -26,12 +27,23 @@ interface SessionPage {
   number: number;
 }
 
-function SkeletonCard() {
+function SkeletonCard({ height = 220 }: { height?: number }) {
   return (
-    <View style={{ backgroundColor: '#1A1A24', borderRadius: 16, padding: 16, marginBottom: 12, height: 130, borderWidth: 1, borderColor: '#2A2A3A' }}>
-      <View style={{ width: '40%', height: 12, backgroundColor: '#2A2A3A', borderRadius: 6, marginBottom: 10 }} />
-      <View style={{ width: '70%', height: 18, backgroundColor: '#2A2A3A', borderRadius: 6, marginBottom: 8 }} />
-      <View style={{ width: '55%', height: 12, backgroundColor: '#2A2A3A', borderRadius: 6 }} />
+    <View style={{
+      height,
+      backgroundColor: '#E5E7EB',
+      borderRadius: 16,
+      marginBottom: 16,
+      overflow: 'hidden',
+    }}>
+      <View style={{ position: 'absolute', top: 12, left: 12, right: 12, flexDirection: 'row', justifyContent: 'space-between' }}>
+        <View style={{ width: 80, height: 24, backgroundColor: '#D1D5DB', borderRadius: 12 }} />
+        <View style={{ width: 48, height: 24, backgroundColor: '#D1D5DB', borderRadius: 12 }} />
+      </View>
+      <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16 }}>
+        <View style={{ width: '70%', height: 18, backgroundColor: '#D1D5DB', borderRadius: 5, marginBottom: 8 }} />
+        <View style={{ width: '50%', height: 12, backgroundColor: '#D1D5DB', borderRadius: 5 }} />
+      </View>
     </View>
   );
 }
@@ -40,22 +52,39 @@ export default function DiscoverScreen() {
   const { user } = useAuthStore();
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationDenied, setLocationDenied] = useState(false);
-  const [sportFilter, setSportFilter] = useState<string | null>(null);
+  const [sportFilter, setSportFilter] = useState<string | null>(null); // null = "All My Sports"
   const [myLevelActive, setMyLevelActive] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setLocationDenied(true);
+          return;
+        }
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      } catch {
         setLocationDenied(true);
-        return;
       }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
     })();
   }, []);
 
-  const queryKey = ['sessions', sportFilter, myLevelActive, coords?.lat, coords?.lng];
+  const { data: profile } = useQuery<UserProfile>({
+    queryKey: ['profile', user?.id],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/v1/users/${user!.id}/profile`);
+      return data;
+    },
+    enabled: !!user?.id,
+    staleTime: 5 * 60_000,
+  });
+
+  const userSports = profile?.sports ?? [];
+  const userSportIds = userSports.map((s) => s.sportId);
+
+  const queryKey = ['sessions', sportFilter, myLevelActive, coords?.lat, coords?.lng, userSportIds.join(',')];
 
   const {
     data,
@@ -68,56 +97,91 @@ export default function DiscoverScreen() {
   } = useInfiniteQuery<SessionPage>({
     queryKey,
     queryFn: async ({ pageParam = 0 }) => {
-      const params: Record<string, any> = { page: pageParam, size: PAGE_SIZE, status: 'OPEN' };
+      const urlParams = new URLSearchParams();
+      urlParams.append('page', String(pageParam));
+      urlParams.append('size', String(PAGE_SIZE));
+      urlParams.append('status', 'OPEN');
       if (coords) {
-        params.lat = coords.lat;
-        params.lng = coords.lng;
-        params.radiusKm = 10;
+        urlParams.append('lat', String(coords.lat));
+        urlParams.append('lng', String(coords.lng));
+        urlParams.append('radiusKm', '10');
       }
-      if (sportFilter) params.sportId = sportFilter;
-      // level filter: pass user's sport level ±2 if available
-      const { data } = await api.get('/api/v1/game-sessions', { params });
+      const activeSportIds = sportFilter !== null
+        ? [sportFilter]
+        : userSportIds;
+      activeSportIds.forEach((id) => urlParams.append('sportIds', id));
+      const { data } = await api.get(`/api/v1/game-sessions?${urlParams.toString()}`);
       return data;
     },
     getNextPageParam: (last: SessionPage) =>
       last.number + 1 < last.totalPages ? last.number + 1 : undefined,
     initialPageParam: 0,
+    refetchInterval: 60_000,
   });
 
-  const sessions = data?.pages.flatMap((p) => p.content) ?? [];
+  const sessions = data?.pages.flatMap((p) => p.content ?? []) ?? [];
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#0F0F14' }}>
-      {/* Header */}
-      <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 }}>
-        <Text style={{ color: '#FFFFFF', fontSize: 26, fontWeight: '800' }}>Discover</Text>
-      </View>
-
-      {/* Location denied banner */}
+  const ListHeader = (
+    <View>
       {locationDenied && (
-        <View style={{ backgroundColor: '#F59E0B22', marginHorizontal: 20, marginBottom: 8, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#F59E0B44' }}>
-          <Text style={{ color: '#F59E0B', fontSize: 13 }}>Enable location for nearby games</Text>
-        </View>
+        <Pressable
+          style={{
+            flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF',
+            borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12,
+            marginBottom: 12, paddingHorizontal: 12, paddingVertical: 10, gap: 8,
+          }}
+        >
+          <MapPin size={16} color="#FF6B35" />
+          <Text style={{ fontSize: 14, color: '#6B7280', flex: 1 }}>Enable location for nearby games</Text>
+          <ChevronRight size={16} color="#9CA3AF" />
+        </Pressable>
       )}
 
-      {/* Filter bar */}
+      <Text style={{ fontSize: 16, fontWeight: '600', color: '#0D0D14', marginBottom: 8 }}>
+        Games near you
+      </Text>
+
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12, paddingTop: 4 }}
+        contentContainerStyle={{ gap: 0, paddingBottom: 12 }}
       >
-        <SportChip label="All Sports" selected={sportFilter === null} onPress={() => setSportFilter(null)} />
+        <SportChip
+          label="All My Sports"
+          selected={sportFilter === null}
+          onPress={() => setSportFilter(null)}
+        />
+        {userSports.map((s) => (
+          <SportChip
+            key={s.sportId}
+            label={s.sportName}
+            selected={sportFilter === s.sportId}
+            onPress={() => setSportFilter(s.sportId)}
+          />
+        ))}
         <SportChip
           label="My Level"
           selected={myLevelActive}
           onPress={() => setMyLevelActive((v) => !v)}
+          icon={<TrendingUp size={12} color={myLevelActive ? '#6C47FF' : '#9CA3AF'} />}
         />
       </ScrollView>
+    </View>
+  );
 
-      {/* Content */}
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 }}>
+        <Text style={{ color: '#0D0D14', fontSize: 28, fontWeight: '700' }}>Discover</Text>
+        <Pressable style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}>
+          <Bell size={18} color="#6B7280" />
+        </Pressable>
+      </View>
+
       {isLoading ? (
-        <View style={{ paddingHorizontal: 20 }}>
-          <SkeletonCard />
+        <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
+          {ListHeader}
+          <SkeletonCard height={260} />
           <SkeletonCard />
           <SkeletonCard />
         </View>
@@ -125,7 +189,8 @@ export default function DiscoverScreen() {
         <FlatList
           data={sessions}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20, flexGrow: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 }}
+          ListHeaderComponent={ListHeader}
           refreshControl={
             <RefreshControl
               refreshing={isRefetching && !isFetchingNextPage}
@@ -136,28 +201,29 @@ export default function DiscoverScreen() {
           onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
           onEndReachedThreshold={0.3}
           ListEmptyComponent={
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 }}>
-              <Text style={{ color: '#9B9BAE', fontSize: 40, marginBottom: 16 }}>🏃</Text>
-              <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 8 }}>
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 }}>
+              <Compass size={52} color="#D1D5DB" />
+              <Text style={{ color: '#0D0D14', fontSize: 18, fontWeight: '600', textAlign: 'center', marginTop: 16 }}>
                 No games nearby
               </Text>
-              <Text style={{ color: '#9B9BAE', fontSize: 14, textAlign: 'center', marginBottom: 24 }}>
+              <Text style={{ color: '#6B7280', fontSize: 14, textAlign: 'center', marginTop: 4 }}>
                 Be the first to create one!
               </Text>
               <Pressable
                 onPress={() => router.push('/(tabs)/create')}
-                style={{ backgroundColor: '#6C47FF', borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 }}
+                style={{ backgroundColor: '#6C47FF', borderRadius: 24, paddingHorizontal: 32, paddingVertical: 14, marginTop: 24 }}
               >
-                <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Create Game</Text>
+                <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 15 }}>Create Game</Text>
               </Pressable>
             </View>
           }
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <SessionCard
               session={item}
               onPress={() => router.push(`/session/${item.id}`)}
-              hostDisplayName={item.hostUserId}
+              hostDisplayName={item.hostDisplayName}
               hostUserId={item.hostUserId}
+              featured={index === 0}
             />
           )}
           ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color="#6C47FF" style={{ marginVertical: 16 }} /> : null}

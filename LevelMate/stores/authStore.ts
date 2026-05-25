@@ -15,11 +15,12 @@ interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isInitialized: boolean;
   needsOnboarding: boolean;
 
   initialize: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  register: (firstName: string, lastName: string, email: string, password: string) => Promise<void>;
+  register: (firstName: string, lastName: string, email: string, password: string, avatarData?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -27,6 +28,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true,
+  isInitialized: false,
   needsOnboarding: false,
 
   initialize: async () => {
@@ -54,10 +56,11 @@ export const useAuthStore = create<AuthState>((set) => ({
         isAuthenticated: true,
         needsOnboarding,
         isLoading: false,
+        isInitialized: true,
       });
     } catch {
       await clearTokens();
-      set({ user: null, isAuthenticated: false, isLoading: false });
+      set({ user: null, isAuthenticated: false, isLoading: false, isInitialized: true });
     }
   },
 
@@ -88,7 +91,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  register: async (firstName: string, lastName: string, email: string, password: string) => {
+  register: async (firstName: string, lastName: string, email: string, password: string, avatarData?: string) => {
     set({ isLoading: true });
     try {
       const { data } = await api.post('/api/v1/auth/register', {
@@ -96,6 +99,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         lastName,
         email,
         password,
+        ...(avatarData ? { avatarData } : {}),
       });
       const userId = decodeJwtSub(data.accessToken);
       await saveTokens(data.accessToken, data.refreshToken, userId);

@@ -3,6 +3,7 @@ export interface User {
   email: string
   displayName: string
   avatarUrl?: string
+  avatarData?: string
 }
 
 export interface Sport {
@@ -35,6 +36,7 @@ export interface UserProfile {
   userId: string
   displayName: string
   avatarUrl?: string
+  avatarData?: string
   sports: ProfileSport[]
   coachProfiles: ProfileCoachProfile[]
 }
@@ -52,6 +54,7 @@ export interface UserSport {
 export interface GameParticipant {
   participantId: string
   userId: string
+  displayName: string
   role: 'HOST' | 'PLAYER'
   team: 'TEAM_A' | 'TEAM_B' | null
   joinedAt: string
@@ -75,9 +78,10 @@ export interface GameSession {
   sportId: string
   sportName: string
   hostUserId: string
+  hostDisplayName: string
   title?: string
   description?: string
-  status: 'OPEN' | 'FULL' | 'CANCELLED' | 'COMPLETED'
+  status: 'OPEN' | 'FULL' | 'IN_PROGRESS' | 'CANCELLED' | 'COMPLETED'
   scheduledAt: string
   durationMinutes?: number
   minPlayers: number
@@ -88,10 +92,32 @@ export interface GameSession {
   locationLat?: number
   locationLng?: number
   locationName?: string
+  googlePlaceId?: string
+  googlePhotoReference?: string
   participantCount: number
   spotsRemaining: number
   participants?: GameParticipant[]
   createdAt?: string
+}
+
+export interface PendingResult {
+  sessionId: string
+  title: string
+  sportName: string
+  sportSlug: string
+  scheduledAt: string
+  locationName?: string
+  participantCount?: number
+  pendingType: 'NOT_REPORTED' | 'REPORTED_BY_OTHER' | 'DISPUTED'
+}
+
+export interface ConflictingSession {
+  id: string
+  title: string
+  scheduledAt: string
+  durationMinutes: number | null
+  sportName: string
+  locationName: string | null
 }
 
 export interface AuthResponse {

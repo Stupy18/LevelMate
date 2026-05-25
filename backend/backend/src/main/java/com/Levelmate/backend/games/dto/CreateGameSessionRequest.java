@@ -27,5 +27,7 @@ public record CreateGameSessionRequest(
         String locationAddress,
         BigDecimal locationLat,
         BigDecimal locationLng,
-        String locationName
+        String locationName,
+        String googlePlaceId,
+        String googlePhotoReference
 ) {}

@@ -23,78 +23,86 @@ export default function LoginScreen() {
     try {
       await login(email, password);
       router.replace(needsOnboarding ? '/onboarding/sports' : '/(tabs)/discover');
-    } catch (err: any) {
-      const code = err?.response?.data?.errorCode;
-      if (err?.response?.status === 401 || code === 'INVALID_CREDENTIALS') {
-        setError('Invalid email or password');
-      } else {
-        setError('Something went wrong. Please try again.');
-      }
+    } catch {
+      setPassword('');
+      setError('No account found with these credentials. Check your email and password.');
     }
   }
 
+  const inputStyle = {
+    backgroundColor: '#FFFFFF',
+    color: '#0D0D14',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    marginBottom: 12,
+  } as const;
+
   return (
-    <SafeAreaView className="flex-1 bg-background">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1 justify-center px-6"
+        style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 24 }}
       >
         {/* Wordmark */}
-        <View className="items-center mb-12">
-          <Text className="text-text-primary text-4xl font-bold tracking-tight">
-            Level<Text className="text-primary">Mate</Text>
+        <View style={{ alignItems: 'center', marginBottom: 48 }}>
+          <Text style={{ fontSize: 36, fontWeight: '700', color: '#0D0D14', letterSpacing: -0.5 }}>
+            Level<Text style={{ color: '#6C47FF' }}>Mate</Text>
           </Text>
         </View>
 
         {/* Email */}
         <TextInput
-          className="bg-surface text-text-primary rounded-xl px-4 py-4 mb-3 text-base"
+          style={inputStyle}
           placeholder="Email"
-          placeholderTextColor="#9B9BAE"
+          placeholderTextColor="#9CA3AF"
           keyboardType="email-address"
           autoCapitalize="none"
           autoComplete="email"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(v) => { setEmail(v); setError(''); }}
         />
 
         {/* Password */}
         <TextInput
-          className="bg-surface text-text-primary rounded-xl px-4 py-4 mb-4 text-base"
+          style={inputStyle}
           placeholder="Password"
-          placeholderTextColor="#9B9BAE"
+          placeholderTextColor="#9CA3AF"
           secureTextEntry
           autoComplete="password"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(v) => { setPassword(v); setError(''); }}
         />
 
         {/* Inline error */}
         {error ? (
-          <Text className="text-error text-sm mb-4">{error}</Text>
+          <Text style={{ color: '#EF4444', fontSize: 13, marginBottom: 12 }}>{error}</Text>
         ) : null}
 
         {/* Sign In button */}
         <Pressable
           onPress={handleSignIn}
           disabled={isLoading}
-          className={`bg-primary rounded-xl py-4 items-center ${isLoading ? 'opacity-60' : ''}`}
+          style={{ backgroundColor: '#6C47FF', borderRadius: 24, paddingVertical: 16, alignItems: 'center', opacity: isLoading ? 0.6 : 1 }}
         >
           {isLoading ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text className="text-text-primary font-semibold text-base">Sign In</Text>
+            <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 16 }}>Sign In</Text>
           )}
         </Pressable>
 
         {/* Register link */}
         <Pressable
           onPress={() => router.push('/(auth)/register')}
-          className="mt-6 items-center"
+          style={{ marginTop: 24, alignItems: 'center' }}
         >
-          <Text className="text-text-secondary text-sm">
+          <Text style={{ color: '#6B7280', fontSize: 14 }}>
             Don't have an account?{' '}
-            <Text className="text-primary font-semibold">Register</Text>
+            <Text style={{ color: '#6C47FF', fontWeight: '600' }}>Register</Text>
           </Text>
         </Pressable>
       </KeyboardAvoidingView>

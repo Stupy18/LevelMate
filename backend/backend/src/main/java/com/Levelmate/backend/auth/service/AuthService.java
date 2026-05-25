@@ -44,6 +44,7 @@ public class AuthService {
                 .passwordHash(passwordEncoder.encode(req.password()))
                 .firstName(req.firstName())
                 .lastName(req.lastName())
+                .avatarData(req.avatarData())
                 .build();
         userRepository.save(user);
         return issueTokenPair(user);

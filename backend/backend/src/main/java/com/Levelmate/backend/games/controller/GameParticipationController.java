@@ -1,6 +1,7 @@
 package com.Levelmate.backend.games.controller;
 
 import com.Levelmate.backend.auth.entity.User;
+import com.Levelmate.backend.games.dto.AssignTeamRequest;
 import com.Levelmate.backend.games.dto.GameSessionResponse;
 import com.Levelmate.backend.games.service.GameParticipationService;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,16 @@ public class GameParticipationController {
             @AuthenticationPrincipal User user,
             @PathVariable UUID sessionId) {
         gameParticipationService.leaveSession(sessionId, user.getId());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{sessionId}/participants/{participantUserId}/team")
+    public ResponseEntity<Void> assignTeam(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID sessionId,
+            @PathVariable UUID participantUserId,
+            @RequestBody AssignTeamRequest request) {
+        gameParticipationService.assignTeam(sessionId, user.getId(), participantUserId, request.team());
         return ResponseEntity.noContent().build();
     }
 }
