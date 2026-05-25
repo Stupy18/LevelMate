@@ -33,13 +33,18 @@ LevelMate mobile app — Expo/React Native client for the LevelMate backend. Ath
 ## Key Decisions & Gotchas
 
 - `npm install` requires `--legacy-peer-deps` (react-dom 19.2.6 peer conflict)
-- Use `npx expo install` for Expo-managed packages
+- Use `npx expo install` for Expo-managed packages — EXCEPT `expo-image-picker` which must use `npm install expo-image-picker --legacy-peer-deps` (expo-linking peer conflict)
 - NativeWind v4 setup: `jsxImportSource: 'nativewind'` in babel + `withNativeWind` in metro + `global.css` imported in root `_layout.tsx`
 - JWT `sub` claim decoded client-side to extract userId (backend `AuthResponse` does not include userId)
 - Backend `RegisterRequest` requires `firstName` + `lastName` separately, NOT a single displayName field
 - `useInfiniteQuery` in TanStack v5 requires `initialPageParam: 0` explicitly
 - `expo-router/entry` is the `main` entry in package.json
 - `"scheme": "levelmate"` required in app.json for deep linking
+- Lucide icons: do NOT pass `style` prop directly to icon components inside a flex row — it causes rendering artifacts on some RN versions. Wrap icon in `<View style={{ flexShrink: 0 }}>` OR use as direct children of the row with no style prop at all
+- PanResponder bottom sheets: must include `onStartShouldSetPanResponder: () => true` alongside `onMoveShouldSetPanResponder` or the gesture never fires on Android. Use `useNativeDriver: false` on translateY so you can clamp `dy` to ≥ 0 in JS
+- Modal + close animation: use internal `modalVisible` state (stays true until spring finishes) to prevent Modal unmounting before animation completes
+- Avatar: stored as base64 string in `avatar_data TEXT` column. Frontend sends/receives as `data:image/jpeg;base64,...` or raw base64; `Avatar` component handles both
+- Dockerfile.dev: must `COPY scripts/ ./scripts/` BEFORE `RUN npm install` so the postinstall script exists when npm runs it
 
 ---
 
@@ -100,10 +105,12 @@ Token keys in SecureStore: `levelmate_access_token`, `levelmate_refresh_token`, 
 ## API Notes
 
 - Backend returns `GameSessionResponse` with flat `sportId`/`sportName` fields — NOT a nested `sport` object
-- `GET /api/v1/users/{userId}/profile` returns `{ userId, displayName, avatarUrl, sports[], coachProfiles[] }`
+- `GET /api/v1/users/{userId}/profile` returns `{ userId, displayName, avatarUrl, avatarData, sports[], coachProfiles[] }`
   - `sports[].sportId` is a UUID — always use this when sending `sportId` to backend, not hard-coded strings
+- `PATCH /api/v1/users/me/profile` — body: `{ displayName?, avatarData? }`. Null `avatarData` clears the avatar
 - `GET /api/v1/game-sessions` returns `Page<GameSessionResponse>` — access via `.content` or `.pages[].content`
 - `GET /api/v1/game-sessions/{id}/result` returns 404 if no result reported yet — handle with try/catch, return null
+- `GET /api/v1/users/me/pending-results` returns `PendingResult[]` with `locationName` and `participantCount` fields
 
 ---
 
@@ -175,6 +182,48 @@ components/sessions/SessionCard.tsx ← session list card
 
 ---
 
+### pending-result-sheet — DONE
+
+**What was built:**
+- `PendingResultSheet` — transparent Modal + Animated spring + PanResponder drag-to-dismiss (no third-party lib). Sport-coloured accent strip, halo icon ring, white card with left-border accent, player count row, press-scale animation on CTA, swipe hint text
+- `stores/pendingSheetStore.ts` — Zustand store so `my-games.tsx` can open the sheet mounted in `_layout.tsx`
+- My Games amber notification banner: `TouchableOpacity` with 3 direct children (Trophy → text column → ChevronRight). No wrapper Views on icons
+
+**Key files:**
+```
+components/modals/PendingResultSheet.tsx
+stores/pendingSheetStore.ts
+app/(tabs)/my-games.tsx     ← banner + store usage
+app/_layout.tsx             ← sheet mount + auto-popup (once per session)
+```
+
+**Key notes:**
+- `onNavigate` callback pattern: parent calls `router.push()` 350ms after closing sheet to avoid Android nav-context issues inside Modal
+- `hasShownReminder` flag in `_layout.tsx` prevents auto-popup firing more than once per session; does NOT block manual banner tap
+- `PendingResultResponse` returns `locationName` and `participantCount` from backend
+
+---
+
+### avatar-upload — DONE
+
+**What was built:**
+- `components/ui/Avatar.tsx` — renders base64 image or falls back to `AvatarInitials`
+- Register screen: optional avatar picker (circular placeholder, dashed border, `+` icon, × to remove)
+- Profile screen: Edit Profile modal — display name input + avatar picker + Save → `PATCH /api/v1/users/me/profile`
+- Backend: Flyway V17 (`avatar_data TEXT`), User entity field, `UpdateProfileRequest` DTO, `UserProfileService.updateProfile()`, `PATCH /me/profile` endpoint, optional `avatarData` on `RegisterRequest`
+
+**Key files:**
+```
+components/ui/Avatar.tsx
+app/(auth)/register.tsx
+app/(tabs)/profile.tsx
+app/user/[id].tsx           ← uses Avatar
+app/session/[id].tsx        ← uses Avatar
+stores/authStore.ts         ← register() accepts avatarData
+```
+
+---
+
 ## OpenSpec Workflow
 
 Changes are tracked in `openspec/changes/<name>/`. Each change has:
@@ -223,4 +272,4 @@ Backend must be running at `http://localhost:8080` (or `HOST_IP:8080` for physic
 
 ## What NOT to Build Yet
 
-Coach booking/payment, push notifications, social feed, ELO history screen, leaderboard screen, search/filter by sport on profile, edit profile.
+Coach booking/payment, push notifications, social feed, ELO history screen, leaderboard screen, search/filter by sport on profile.
