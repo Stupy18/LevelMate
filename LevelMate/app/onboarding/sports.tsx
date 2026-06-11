@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
 import api from '../../lib/api';
+import { getSportColour } from '../../lib/sportColors';
 import { useAuthStore } from '../../stores/authStore';
 import type { Sport } from '../../types';
 
@@ -18,13 +19,6 @@ interface SelectedSport {
   sport: Sport;
   level: number;
   grade?: string;
-}
-
-const SPORT_COLOURS = ['#6C47FF', '#FF6B35', '#22C55E', '#F59E0B', '#3B82F6', '#EC4899'];
-function sportColour(name: string) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return SPORT_COLOURS[h % SPORT_COLOURS.length];
 }
 
 export default function SportsOnboardingScreen() {
@@ -49,14 +43,14 @@ export default function SportsOnboardingScreen() {
         delete next[sport.id];
         return next;
       }
-      return { ...prev, [sport.id]: { sport, level: 5 } };
+      return { ...prev, [sport.id]: { sport, level: 1 } };
     });
   }
 
   function changeLevel(sportId: string, delta: number) {
     setSelected((prev) => {
       if (!prev[sportId]) return prev;
-      const newLevel = Math.min(10, Math.max(1, prev[sportId].level + delta));
+      const newLevel = Math.min(4, Math.max(1, prev[sportId].level + delta));
       return { ...prev, [sportId]: { ...prev[sportId], level: newLevel } };
     });
   }
@@ -75,13 +69,13 @@ export default function SportsOnboardingScreen() {
     try {
       await Promise.all(
         Object.values(selected).map(({ sport, level, grade }) => {
-          const payload: Record<string, any> = { sportId: sport.id };
-          if (sport.ratingType === 'GRADE_BASED') {
-            if (grade?.trim()) payload.grade = grade.trim();
-          } else {
-            payload.level = level;
+          const metrics: { metricKey: string; value: string }[] = [];
+          if (sport.ratingType === 'ELO_COMPETITIVE') {
+            metrics.push({ metricKey: 'self_reported_level', value: String(level) });
+          } else if (sport.ratingType === 'GRADE_BASED' && grade?.trim()) {
+            metrics.push({ metricKey: 'current_grade', value: grade.trim() });
           }
-          return api.post(`/api/v1/users/${user.id}/sports`, payload);
+          return api.post(`/api/v1/users/${user.id}/sports`, { sportId: sport.id, metrics });
         }),
       );
       router.replace('/(tabs)/discover');
@@ -108,7 +102,7 @@ export default function SportsOnboardingScreen() {
           What sports do you play?
         </Text>
         <Text style={{ color: '#6B7280', fontSize: 15, marginBottom: 24 }}>
-          You can always add more later
+          You can always add more and set your stats later
         </Text>
 
         {error ? <Text style={{ color: '#EF4444', fontSize: 13, marginBottom: 16 }}>{error}</Text> : null}
@@ -121,7 +115,7 @@ export default function SportsOnboardingScreen() {
           contentContainerStyle={{ gap: 12, paddingBottom: 24 }}
           renderItem={({ item }) => {
             const sel = selected[item.id];
-            const colour = sportColour(item.name);
+            const colour = getSportColour(item.slug);
             return (
               <Pressable
                 onPress={() => toggleSport(item)}
@@ -158,12 +152,13 @@ export default function SportsOnboardingScreen() {
                           autoCapitalize="none"
                         />
                       </View>
-                    ) : (
+                    ) : item.ratingType === 'ELO_COMPETITIVE' ? (
                       <>
                         <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>
                           Level: <Text style={{ color: '#6C47FF', fontWeight: '700' }}>{sel.level}</Text>
+                          <Text style={{ color: '#9CA3AF', fontSize: 11 }}>/4</Text>
                         </Text>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 6 }}>
                           <Pressable
                             onPress={(e) => { e.stopPropagation?.(); changeLevel(item.id, -1); }}
                             style={{ backgroundColor: '#FFFFFF', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: '#E5E7EB' }}
@@ -177,7 +172,14 @@ export default function SportsOnboardingScreen() {
                             <Text style={{ color: '#0D0D14', fontWeight: '700' }}>+</Text>
                           </Pressable>
                         </View>
+                        <Text style={{ color: '#9CA3AF', fontSize: 10, lineHeight: 13 }}>
+                          Levels 5–10 unlock through match results
+                        </Text>
                       </>
+                    ) : (
+                      <Text style={{ color: '#9CA3AF', fontSize: 11, marginTop: 2 }}>
+                        Add performance data from your profile
+                      </Text>
                     )}
                   </View>
                 )}

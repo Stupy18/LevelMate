@@ -13,16 +13,26 @@ public record GameParticipantResponse(
         String displayName,
         ParticipantRole role,
         TeamSide team,
-        Instant joinedAt
+        Instant joinedAt,
+        boolean isCapt,
+        boolean pbUpdateSubmitted,
+        boolean sessionAcknowledged
 ) {
     public static GameParticipantResponse from(GameParticipant p) {
+        return from(p, false);
+    }
+
+    public static GameParticipantResponse from(GameParticipant p, boolean isCapt) {
         return new GameParticipantResponse(
                 p.getId(),
                 p.getUser().getId(),
                 p.getUser().getFirstName() + " " + p.getUser().getLastName(),
                 p.getRole(),
                 p.getTeam(),
-                p.getJoinedAt()
+                p.getJoinedAt(),
+                isCapt,
+                p.isPbUpdateSubmitted(),
+                p.isSessionAcknowledged()
         );
     }
 }

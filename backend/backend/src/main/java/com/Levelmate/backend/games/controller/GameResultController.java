@@ -1,6 +1,7 @@
 package com.Levelmate.backend.games.controller;
 
 import com.Levelmate.backend.auth.entity.User;
+import com.Levelmate.backend.games.dto.DisputeResultRequest;
 import com.Levelmate.backend.games.dto.GameResultResponse;
 import com.Levelmate.backend.games.dto.ReportResultRequest;
 import com.Levelmate.backend.games.service.GameResultService;
@@ -41,10 +42,23 @@ public class GameResultController {
         return ResponseEntity.ok(gameResultService.confirmResult(sessionId, user.getId()));
     }
 
+    /**
+     * Dual-purpose:
+     *   PENDING_CONFIRMATION state → body with winnerTeam/scores required (Player B counter-proposal)
+     *   COUNTER_PROPOSED state     → no body required (Player A rejects → escalates to DISPUTED)
+     */
     @PostMapping("/{sessionId}/result/dispute")
     public ResponseEntity<GameResultResponse> disputeResult(
             @AuthenticationPrincipal User user,
+            @PathVariable UUID sessionId,
+            @RequestBody(required = false) DisputeResultRequest request) {
+        return ResponseEntity.ok(gameResultService.disputeResult(sessionId, user.getId(), request));
+    }
+
+    @PostMapping("/{sessionId}/result/accept-counter")
+    public ResponseEntity<GameResultResponse> acceptCounter(
+            @AuthenticationPrincipal User user,
             @PathVariable UUID sessionId) {
-        return ResponseEntity.ok(gameResultService.disputeResult(sessionId, user.getId()));
+        return ResponseEntity.ok(gameResultService.acceptCounter(sessionId, user.getId()));
     }
 }

@@ -4,23 +4,45 @@ export interface User {
   displayName: string
   avatarUrl?: string
   avatarData?: string
+  role?: 'USER' | 'ADMIN'
 }
 
 export interface Sport {
   id: string
   name: string
+  slug: string
   ratingType: 'ELO_COMPETITIVE' | 'GRADE_BASED' | 'PERFORMANCE_BASED'
   description?: string
+}
+
+export interface SportMetricDefinition {
+  id: string
+  metricKey: string
+  label: string
+  inputType: 'number' | 'duration' | 'grade_v' | 'grade_french_sport' | 'text'
+  unit?: string | null
+  isRequired: boolean
+  displayOrder: number
+}
+
+export interface SportMetricValue {
+  metricKey: string
+  label: string
+  inputType: string
+  unit?: string | null
+  value: string | null
 }
 
 export interface ProfileSport {
   sportId: string
   sportName: string
+  sportSlug: string
   ratingType: 'ELO_COMPETITIVE' | 'GRADE_BASED' | 'PERFORMANCE_BASED'
   eloRating?: number
   gamesPlayed: number
   grade?: string
   level?: number
+  metrics: SportMetricValue[]
 }
 
 export interface ProfileCoachProfile {
@@ -58,6 +80,9 @@ export interface GameParticipant {
   role: 'HOST' | 'PLAYER'
   team: 'TEAM_A' | 'TEAM_B' | null
   joinedAt: string
+  isCapt: boolean
+  pbUpdateSubmitted: boolean
+  sessionAcknowledged: boolean
 }
 
 export interface GameResult {
@@ -68,15 +93,22 @@ export interface GameResult {
   winnerTeam: 'TEAM_A' | 'TEAM_B' | 'DRAW'
   scoreTeamA?: number
   scoreTeamB?: number
-  status: 'PENDING_CONFIRMATION' | 'CONFIRMED' | 'DISPUTED'
+  counterReportedByUserId?: string
+  counterWinnerTeam?: 'TEAM_A' | 'TEAM_B' | 'DRAW'
+  counterScoreTeamA?: number
+  counterScoreTeamB?: number
+  status: 'PENDING_CONFIRMATION' | 'COUNTER_PROPOSED' | 'CONFIRMED' | 'DISPUTED'
   reportedAt: string
   confirmedAt?: string
+  disputedAt?: string
 }
 
 export interface GameSession {
   id: string
   sportId: string
   sportName: string
+  sportSlug?: string
+  ratingType?: 'ELO_COMPETITIVE' | 'GRADE_BASED' | 'PERFORMANCE_BASED'
   hostUserId: string
   hostDisplayName: string
   title?: string
@@ -88,6 +120,9 @@ export interface GameSession {
   maxPlayers: number
   minLevel?: number
   maxLevel?: number
+  targetPace?: string
+  gradeMin?: string
+  gradeMax?: string
   locationAddress?: string
   locationLat?: number
   locationLng?: number
@@ -98,6 +133,7 @@ export interface GameSession {
   spotsRemaining: number
   participants?: GameParticipant[]
   createdAt?: string
+  cancellationReasonInsufficientPlayers?: boolean
 }
 
 export interface PendingResult {
@@ -108,7 +144,7 @@ export interface PendingResult {
   scheduledAt: string
   locationName?: string
   participantCount?: number
-  pendingType: 'NOT_REPORTED' | 'REPORTED_BY_OTHER' | 'DISPUTED'
+  pendingType: 'NOT_REPORTED' | 'REPORTED_BY_OTHER' | 'COUNTER_PROPOSED' | 'DISPUTED' | 'PB_UPDATE' | 'SESSION_LOG' | 'CANCELLED_SESSION'
 }
 
 export interface ConflictingSession {

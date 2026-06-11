@@ -1,7 +1,11 @@
 import { Tabs } from 'expo-router';
-import { CalendarDays, Compass, PlusCircle, UserCircle } from 'lucide-react-native';
+import { CalendarDays, Compass, PlusCircle, ShieldAlert, UserCircle } from 'lucide-react-native';
+import { useAuthStore } from '../../stores/authStore';
 
 export default function TabsLayout() {
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.role === 'ADMIN';
+
   return (
     <Tabs
       screenOptions={{
@@ -42,6 +46,14 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color }) => <UserCircle size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="admin"
+        options={{
+          title: 'Admin',
+          href: isAdmin ? undefined : null,
+          tabBarIcon: ({ color }) => <ShieldAlert size={22} color={color} />,
         }}
       />
     </Tabs>

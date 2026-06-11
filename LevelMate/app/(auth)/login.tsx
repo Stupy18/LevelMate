@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
+
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -16,13 +17,13 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const { login, isLoading, needsOnboarding } = useAuthStore();
+  const { login, isLoading } = useAuthStore();
 
   async function handleSignIn() {
     setError('');
     try {
       await login(email, password);
-      router.replace(needsOnboarding ? '/onboarding/sports' : '/(tabs)/discover');
+      // _layout.tsx effect handles redirect when isAuthenticated flips
     } catch {
       setPassword('');
       setError('No account found with these credentials. Check your email and password.');

@@ -41,6 +41,14 @@ public class GameParticipant {
     @Column(name = "joined_at", nullable = false, updatable = false)
     private Instant joinedAt;
 
+    @Column(name = "pb_update_submitted", nullable = false)
+    @Builder.Default
+    private boolean pbUpdateSubmitted = false;
+
+    @Column(name = "session_acknowledged", nullable = false)
+    @Builder.Default
+    private boolean sessionAcknowledged = false;
+
     @PrePersist
     void prePersist() {
         if (joinedAt == null) joinedAt = Instant.now();

@@ -12,6 +12,8 @@ public record GameSessionResponse(
         UUID id,
         UUID sportId,
         String sportName,
+        String sportSlug,
+        String ratingType,
         UUID hostUserId,
         String hostDisplayName,
         String title,
@@ -23,6 +25,9 @@ public record GameSessionResponse(
         int maxPlayers,
         Integer minLevel,
         Integer maxLevel,
+        String targetPace,
+        String gradeMin,
+        String gradeMax,
         String locationAddress,
         BigDecimal locationLat,
         BigDecimal locationLng,
@@ -32,7 +37,8 @@ public record GameSessionResponse(
         int participantCount,
         int spotsRemaining,
         List<GameParticipantResponse> participants,
-        Instant createdAt
+        Instant createdAt,
+        boolean cancellationReasonInsufficientPlayers
 ) {
     public static GameSessionResponse from(GameSession s, List<GameParticipantResponse> participants) {
         int count = participants.size();
@@ -40,6 +46,8 @@ public record GameSessionResponse(
                 s.getId(),
                 s.getSport().getId(),
                 s.getSport().getName(),
+                s.getSport().getSlug(),
+                s.getSport().getRatingType().name(),
                 s.getHost().getId(),
                 s.getHost().getFirstName() + " " + s.getHost().getLastName(),
                 s.getTitle(),
@@ -51,6 +59,9 @@ public record GameSessionResponse(
                 s.getMaxPlayers(),
                 s.getMinLevel(),
                 s.getMaxLevel(),
+                s.getTargetPace(),
+                s.getGradeMin(),
+                s.getGradeMax(),
                 s.getLocationAddress(),
                 s.getLocationLat(),
                 s.getLocationLng(),
@@ -60,7 +71,8 @@ public record GameSessionResponse(
                 count,
                 Math.max(0, s.getMaxPlayers() - count),
                 participants,
-                s.getCreatedAt()
+                s.getCreatedAt(),
+                s.isCancellationReasonInsufficientPlayers()
         );
     }
 }

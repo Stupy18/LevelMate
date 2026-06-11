@@ -44,6 +44,20 @@ public class GameResult {
     @Column(name = "score_team_b")
     private Integer scoreTeamB;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "counter_reported_by_user_id")
+    private User counterReportedBy;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "counter_winner_team", length = 10)
+    private WinnerTeam counterWinnerTeam;
+
+    @Column(name = "counter_score_team_a")
+    private Integer counterScoreTeamA;
+
+    @Column(name = "counter_score_team_b")
+    private Integer counterScoreTeamB;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private ResultStatus status;
@@ -53,6 +67,13 @@ public class GameResult {
 
     @Column(name = "confirmed_at")
     private Instant confirmedAt;
+
+    @Column(name = "disputed_at")
+    private Instant disputedAt;
+
+    @Column(name = "auto_resolved", nullable = false)
+    @Builder.Default
+    private boolean autoResolved = false;
 
     @PrePersist
     void prePersist() {

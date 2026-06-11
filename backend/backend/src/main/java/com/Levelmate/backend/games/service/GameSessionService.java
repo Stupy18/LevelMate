@@ -1,6 +1,7 @@
 package com.Levelmate.backend.games.service;
 
 import com.Levelmate.backend.auth.entity.User;
+import com.Levelmate.backend.common.exception.LevelCapExceededException;
 import com.Levelmate.backend.common.exception.SessionNotFoundException;
 import com.Levelmate.backend.common.exception.SportNotOnProfileException;
 import com.Levelmate.backend.common.exception.TimeConflictException;
@@ -52,7 +53,18 @@ public class GameSessionService {
         Sport sport = sportRepository.findById(request.sportId())
                 .orElseThrow(() -> new com.Levelmate.backend.common.exception.SportNotFoundException());
 
+        if (sport.getRatingType() == RatingType.ELO_COMPETITIVE && request.maxLevel() != null) {
+            userSportRepository.findByUserIdAndSportId(userId, request.sportId()).ifPresent(hostSport -> {
+                if (hostSport.getLevel() != null && request.maxLevel() > hostSport.getLevel() + 3) {
+                    throw new LevelCapExceededException(hostSport.getLevel());
+                }
+            });
+        }
+
         checkTimeConflict(userId, request.scheduledAt(), request.durationMinutes(), null);
+
+        Integer minLevel = sport.getRatingType() == RatingType.ELO_COMPETITIVE ? request.minLevel() : null;
+        Integer maxLevel = sport.getRatingType() == RatingType.ELO_COMPETITIVE ? request.maxLevel() : null;
 
         GameSession session = GameSession.builder()
                 .sport(sport)
@@ -64,8 +76,11 @@ public class GameSessionService {
                 .durationMinutes(request.durationMinutes())
                 .minPlayers(request.minPlayers())
                 .maxPlayers(request.maxPlayers())
-                .minLevel(request.minLevel())
-                .maxLevel(request.maxLevel())
+                .minLevel(minLevel)
+                .maxLevel(maxLevel)
+                .targetPace(request.targetPace())
+                .gradeMin(request.gradeMin())
+                .gradeMax(request.gradeMax())
                 .locationAddress(request.locationAddress())
                 .locationLat(request.locationLat())
                 .locationLng(request.locationLng())
@@ -169,6 +184,10 @@ public class GameSessionService {
                         && !result.getReportedBy().getId().equals(userId)
                         && !resultVoteRepository.existsByResultIdAndUserId(result.getId(), userId)) {
                     pendingType = "REPORTED_BY_OTHER";
+                } else if (result.getStatus() == ResultStatus.COUNTER_PROPOSED
+                        && result.getReportedBy().getId().equals(userId)) {
+                    // Original reporter must respond to the counter-proposal
+                    pendingType = "COUNTER_PROPOSED";
                 } else if (result.getStatus() == ResultStatus.DISPUTED) {
                     pendingType = "DISPUTED";
                 } else {
@@ -184,6 +203,47 @@ public class GameSessionService {
                     sportSlug, session.getScheduledAt(), pendingType,
                     session.getLocationName(), ps.size()));
         }
+        // PERFORMANCE_BASED: pb not yet submitted
+        List<GameSession> perfSessions = gameSessionRepository.findCompletedPerfSessionsPendingForUser(
+                userId, SessionStatus.COMPLETED, RatingType.PERFORMANCE_BASED);
+        for (GameSession session : perfSessions) {
+            List<GameParticipant> ps = gameParticipantRepository.findAllBySessionId(session.getId());
+            String title = session.getTitle() != null
+                    ? session.getTitle()
+                    : session.getSport().getName() + " session";
+            results.add(new PendingResultResponse(
+                    session.getId(), title, session.getSport().getName(),
+                    session.getSport().getSlug(), session.getScheduledAt(), "PB_UPDATE",
+                    session.getLocationName(), ps.size()));
+        }
+
+        // GRADE_BASED: not yet acknowledged
+        List<GameSession> gradeSessions = gameSessionRepository.findCompletedGradeSessionsPendingForUser(
+                userId, SessionStatus.COMPLETED, RatingType.GRADE_BASED);
+        for (GameSession session : gradeSessions) {
+            List<GameParticipant> ps = gameParticipantRepository.findAllBySessionId(session.getId());
+            String title = session.getTitle() != null
+                    ? session.getTitle()
+                    : session.getSport().getName() + " session";
+            results.add(new PendingResultResponse(
+                    session.getId(), title, session.getSport().getName(),
+                    session.getSport().getSlug(), session.getScheduledAt(), "SESSION_LOG",
+                    session.getLocationName(), ps.size()));
+        }
+
+        // Auto-cancelled due to insufficient players
+        List<GameSession> cancelledSessions = gameSessionRepository.findCancelledAutoSessionsPendingForUser(userId);
+        for (GameSession session : cancelledSessions) {
+            List<GameParticipant> ps = gameParticipantRepository.findAllBySessionId(session.getId());
+            String title = session.getTitle() != null
+                    ? session.getTitle()
+                    : session.getSport().getName() + " session";
+            results.add(new PendingResultResponse(
+                    session.getId(), title, session.getSport().getName(),
+                    session.getSport().getSlug(), session.getScheduledAt(), "CANCELLED_SESSION",
+                    session.getLocationName(), ps.size()));
+        }
+
         return results;
     }
 
@@ -214,10 +274,24 @@ public class GameSessionService {
     }
 
     public GameSessionResponse buildResponse(GameSession session) {
-        List<GameParticipantResponse> participants = gameParticipantRepository
-                .findAllBySessionId(session.getId()).stream()
-                .map(GameParticipantResponse::from)
+        List<GameParticipant> raw = gameParticipantRepository.findAllBySessionId(session.getId());
+
+        UUID hostId = session.getHost().getId();
+        UUID teamBCaptainId = raw.stream()
+                .filter(p -> p.getTeam() == TeamSide.TEAM_B)
+                .min(java.util.Comparator.comparing(GameParticipant::getJoinedAt))
+                .map(p -> p.getUser().getId())
+                .orElse(null);
+
+        List<GameParticipantResponse> participants = raw.stream()
+                .map(p -> {
+                    boolean isCapt =
+                            (p.getTeam() == TeamSide.TEAM_A && p.getUser().getId().equals(hostId)) ||
+                            (p.getTeam() == TeamSide.TEAM_B && teamBCaptainId != null && p.getUser().getId().equals(teamBCaptainId));
+                    return GameParticipantResponse.from(p, isCapt);
+                })
                 .toList();
+
         return GameSessionResponse.from(session, participants);
     }
 

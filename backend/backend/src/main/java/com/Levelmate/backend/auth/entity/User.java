@@ -47,6 +47,13 @@ public class User implements UserDetails {
     @Column(name = "avatar_data", columnDefinition = "TEXT")
     private String avatarData;
 
+    @Column(name = "push_token", length = 500)
+    private String pushToken;
+
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private String role = "USER";
+
     @PrePersist
     void prePersist() {
         createdAt = updatedAt = Instant.now();
@@ -59,7 +66,7 @@ public class User implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        return List.of(new SimpleGrantedAuthority("ROLE_" + role));
     }
 
     @Override

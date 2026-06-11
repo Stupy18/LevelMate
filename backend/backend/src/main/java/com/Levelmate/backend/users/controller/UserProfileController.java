@@ -4,6 +4,7 @@ import com.Levelmate.backend.auth.entity.User;
 import com.Levelmate.backend.games.dto.GameSessionResponse;
 import com.Levelmate.backend.games.dto.PendingResultResponse;
 import com.Levelmate.backend.games.service.GameSessionService;
+import com.Levelmate.backend.notifications.dto.SavePushTokenRequest;
 import com.Levelmate.backend.users.dto.UpdateProfileRequest;
 import com.Levelmate.backend.users.dto.UserProfileResponse;
 import com.Levelmate.backend.users.service.UserProfileService;
@@ -45,5 +46,13 @@ public class UserProfileController {
             @AuthenticationPrincipal User user,
             @RequestBody UpdateProfileRequest req) {
         return ResponseEntity.ok(userProfileService.updateProfile(user.getId(), req));
+    }
+
+    @PatchMapping("/me/push-token")
+    public ResponseEntity<Void> savePushToken(
+            @AuthenticationPrincipal User user,
+            @RequestBody SavePushTokenRequest req) {
+        userProfileService.savePushToken(user.getId(), req.token());
+        return ResponseEntity.ok().build();
     }
 }

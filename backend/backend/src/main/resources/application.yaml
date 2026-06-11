@@ -20,3 +20,8 @@ app:
     secret: ${JWT_SECRET:dGhpcy1pcy1hLWRldi1vbmx5LXNlY3JldC1rZXktZG9ub3R1c2VpbnByb2Q=}
     access-token-expiry: 900000      # 15 minutes in ms
     refresh-token-expiry: 2592000000 # 30 days in ms
+
+levelmate:
+  scheduler:
+    dispute-resolution-cron: "0 0 * * * *"   # every hour
+    dispute-resolution-hours: 24

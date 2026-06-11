@@ -15,9 +15,14 @@ public record GameResultResponse(
         WinnerTeam winnerTeam,
         Integer scoreTeamA,
         Integer scoreTeamB,
+        UUID counterReportedByUserId,
+        WinnerTeam counterWinnerTeam,
+        Integer counterScoreTeamA,
+        Integer counterScoreTeamB,
         ResultStatus status,
         Instant reportedAt,
-        Instant confirmedAt
+        Instant confirmedAt,
+        Instant disputedAt
 ) {
     public static GameResultResponse from(GameResult r) {
         return new GameResultResponse(
@@ -28,9 +33,14 @@ public record GameResultResponse(
                 r.getWinnerTeam(),
                 r.getScoreTeamA(),
                 r.getScoreTeamB(),
+                r.getCounterReportedBy() != null ? r.getCounterReportedBy().getId() : null,
+                r.getCounterWinnerTeam(),
+                r.getCounterScoreTeamA(),
+                r.getCounterScoreTeamB(),
                 r.getStatus(),
                 r.getReportedAt(),
-                r.getConfirmedAt()
+                r.getConfirmedAt(),
+                r.getDisputedAt()
         );
     }
 }

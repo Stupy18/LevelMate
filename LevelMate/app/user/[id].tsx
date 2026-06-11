@@ -75,7 +75,7 @@ export default function UserProfileScreen() {
                   </View>
                   {s.level != null && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <LevelDots level={s.level} />
+                      <LevelDots level={s.level} newPlayer={s.gamesPlayed === 0} />
                       <Text style={{ color: '#6B7280', fontSize: 12 }}>Level {s.level}/10</Text>
                     </View>
                   )}

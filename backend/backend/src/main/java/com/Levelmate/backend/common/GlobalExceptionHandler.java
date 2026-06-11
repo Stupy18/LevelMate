@@ -205,6 +205,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(Map.of("errorCode", "USER_NOT_FOUND", "message", ex.getMessage()));
     }
 
+    @ExceptionHandler(LevelCapExceededException.class)
+    public ResponseEntity<Map<String, String>> handleLevelCapExceeded(LevelCapExceededException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("errorCode", "LEVEL_CAP_EXCEEDED", "message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(LevelLockedException.class)
+    public ResponseEntity<Map<String, String>> handleLevelLocked(LevelLockedException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("errorCode", "LEVEL_LOCKED_ACTIVE_SESSION", "message", ex.getMessage()));
+    }
+
     @ExceptionHandler(TeamsNotBalancedException.class)
     public ResponseEntity<Map<String, String>> handleTeamsNotBalanced(TeamsNotBalancedException ex) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)

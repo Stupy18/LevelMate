@@ -1,5 +1,5 @@
 package com.Levelmate.backend.games.entity;
 
 public enum ResultStatus {
-    PENDING_CONFIRMATION, CONFIRMED, DISPUTED
+    PENDING_CONFIRMATION, COUNTER_PROPOSED, CONFIRMED, DISPUTED
 }

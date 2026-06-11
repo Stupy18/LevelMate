@@ -78,6 +78,19 @@ public class GameSession {
     @Column(name = "google_photo_reference", length = 500)
     private String googlePhotoReference;
 
+    @Column(name = "target_pace", length = 200)
+    private String targetPace;
+
+    @Column(name = "grade_min", length = 20)
+    private String gradeMin;
+
+    @Column(name = "grade_max", length = 20)
+    private String gradeMax;
+
+    @Column(name = "cancellation_reason_insufficient_players", nullable = false)
+    @Builder.Default
+    private boolean cancellationReasonInsufficientPlayers = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

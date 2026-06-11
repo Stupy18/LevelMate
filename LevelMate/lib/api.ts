@@ -43,6 +43,11 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Auth endpoints return 401 for bad credentials — never attempt a token refresh for them
+    if (originalRequest.url?.includes('/api/v1/auth/')) {
+      return Promise.reject(error);
+    }
+
     if (isRefreshing) {
       // Queue this request until the in-flight refresh resolves
       return new Promise((resolve, reject) => {

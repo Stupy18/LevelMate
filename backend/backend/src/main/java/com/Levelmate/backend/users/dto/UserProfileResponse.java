@@ -12,30 +12,43 @@ public record UserProfileResponse(
         String displayName,
         String avatarUrl,
         String avatarData,
+        String role,
         List<SportSummary> sports,
         List<CoachProfileSummary> coachProfiles
 ) {
     public record SportSummary(
             UUID sportId,
             String sportName,
+            String sportSlug,
             RatingType ratingType,
             Double eloRating,
             int gamesPlayed,
             String grade,
-            Integer level
+            Integer level,
+            List<SportMetricValue> metrics
     ) {
-        public static SportSummary from(UserSport us) {
+        public static SportSummary from(UserSport us, List<SportMetricValue> metrics) {
             return new SportSummary(
                     us.getSport().getId(),
                     us.getSport().getName(),
+                    us.getSport().getSlug(),
                     us.getSport().getRatingType(),
                     us.getEloRating(),
                     us.getGamesPlayed(),
                     us.getGrade(),
-                    us.getLevel()
+                    us.getLevel(),
+                    metrics
             );
         }
     }
+
+    public record SportMetricValue(
+            String metricKey,
+            String label,
+            String inputType,
+            String unit,
+            String value
+    ) {}
 
     public record CoachProfileSummary(
             UUID coachProfileId,

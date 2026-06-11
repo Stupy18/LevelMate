@@ -35,8 +35,10 @@ LevelMate is a multi-sport social platform where athletes find people to play wi
 com.Levelmate.backend
 ├── auth/          ← JWT login, registration, token refresh
 ├── users/         ← user profiles, sport levels, coach profiles  [DONE]
-├── games/         ← game sessions, joining, location             [FUTURE]
-├── elo/           ← ELO calculation engine                       [FUTURE]
+├── games/         ← game sessions, joining, location, results    [DONE]
+├── elo/           ← ELO calculation engine                       [DONE]
+├── admin/         ← admin-only endpoints (disputes, all sessions)[DONE]
+├── notifications/ ← Expo push notification service               [DONE]
 ├── coaching/      ← coach booking, sessions                      [FUTURE]
 └── common/        ← shared DTOs, exceptions, base classes
 ```
@@ -228,11 +230,13 @@ resources/db/migration/
 - `PATCH /api/v1/game-sessions/{sessionId}/status` — HOST-only; CANCELLED or COMPLETED (200)
 - `POST /api/v1/game-sessions/{sessionId}/join` — join OPEN session, level-range checked (200)
 - `POST /api/v1/game-sessions/{sessionId}/leave` — leave OPEN/FULL session, non-HOST only (204)
-- `POST /api/v1/game-sessions/{sessionId}/assign-team` — assign participant to TEAM_A/TEAM_B (200)
+- `PATCH /api/v1/game-sessions/{sessionId}/participants/{participantUserId}/team` — assign participant to TEAM_A/TEAM_B (200); pre-game: host only; post-game rebalancing window: host or Team B captain
+- `GET /api/v1/game-sessions/{sessionId}/can-rebalance` — returns `{ canRebalance, reason }` for current user (200)
 - `POST /api/v1/game-sessions/{sessionId}/result` — report result (201); COMPLETED + ELO_COMPETITIVE only
 - `GET /api/v1/game-sessions/{sessionId}/result` — get result (200)
 - `POST /api/v1/game-sessions/{sessionId}/result/confirm` — confirm result, triggers ELO (200)
-- `POST /api/v1/game-sessions/{sessionId}/result/dispute` — dispute result (200)
+- `POST /api/v1/game-sessions/{sessionId}/result/dispute` — dispute with counter-score (Team B captain only); (200)
+- `POST /api/v1/game-sessions/{sessionId}/result/accept-counter` — original reporter accepts the counter-score (200)
 
 **Files created:**
 ```
@@ -241,10 +245,10 @@ games/
   entity/ParticipantRole.java    (HOST, PLAYER)
   entity/TeamSide.java           (TEAM_A, TEAM_B)
   entity/WinnerTeam.java         (TEAM_A, TEAM_B, DRAW)
-  entity/ResultStatus.java       (PENDING_CONFIRMATION, CONFIRMED, DISPUTED)
+  entity/ResultStatus.java       (PENDING_CONFIRMATION, COUNTER_PROPOSED, CONFIRMED, DISPUTED)
   entity/GameSession.java        (BigDecimal lat/lng, locationName, locationAddress, googlePlaceId)
   entity/GameParticipant.java    (ManyToOne session+user, @Enumerated role/team)
-  entity/GameResult.java         (OneToOne session, two ManyToOne user reporter/confirmer)
+  entity/GameResult.java         (OneToOne session, two ManyToOne user reporter/confirmer; counter fields: counterWinnerTeam, counterScoreTeamA/B, counterReportedBy; disputedAt, autoResolved)
   entity/ResultVote.java         (ManyToOne result+user, @Enumerated VoteType)
   entity/VoteType.java           (CONFIRM, DISPUTE)
   repository/GameSessionRepository.java     (searchOpen @Query with bounding-box, findCompletedEloSessionsForUser)
@@ -263,12 +267,12 @@ games/
   service/GameSessionService.java           (createSession, getSession, searchSessions, getPendingResults, getActiveSessionsForUser)
   service/GameSessionStatusService.java     (updateStatus: HOST-only, valid transitions)
   service/GameParticipationService.java     (joinSession, leaveSession, assignTeam)
-  service/GameResultService.java            (reportResult, confirmResult, disputeResult, getResult)
+  service/GameResultService.java            (reportResult, confirmResult, disputeResult, acceptCounter, getResult)
   service/SessionStatusScheduler.java       (@Scheduled auto-transitions sessions to IN_PROGRESS)
   controller/GameSessionController.java
   controller/GameSessionStatusController.java
-  controller/GameParticipationController.java
-  controller/GameResultController.java
+  controller/GameParticipationController.java  (PATCH /{id}/participants/{userId}/team)
+  controller/GameResultController.java         (POST result, GET result, confirm, dispute, accept-counter)
 common/exception/
   SessionNotFoundException.java + 17 others
   TeamsNotBalancedException.java
@@ -282,12 +286,14 @@ resources/db/migration/
   V14__add_in_progress_session_status.sql            (adds IN_PROGRESS to status CHECK constraint)
   V15__convert_elo_to_decimal.sql                    (elo_rating column → DECIMAL)
   V16__create_result_votes_table.sql                 (result_votes: result_id FK, user_id FK, vote_type)
+  V18__add_counter_proposed_state.sql                (COUNTER_PROPOSED to status CHECK; counter_winner_team, counter_score_team_a/b, counter_reported_by_user_id columns on game_results)
 ```
 
 **Key notes:**
 - Session status machine: OPEN → FULL (auto on max join) / IN_PROGRESS (auto via scheduler) / CANCELLED / COMPLETED (HOST sets)
 - `SessionStatusScheduler` auto-transitions OPEN/FULL sessions to IN_PROGRESS when `scheduledAt` is reached
-- Result flow: PENDING_CONFIRMATION → CONFIRMED (non-reporter confirms) / DISPUTED (non-reporter disputes); votes tracked in `result_votes`
+- Result flow: PENDING_CONFIRMATION → CONFIRMED (majority vote) / COUNTER_PROPOSED (Team B captain disputes with different score); COUNTER_PROPOSED → DISPUTED (original reporter rejects) / CONFIRMED (original reporter accepts counter)
+- Majority vote confirmation: `confirmVotes * 2 > totalVoters` where totalVoters = totalParticipants − 1
 - Bounding-box search: latDelta = radiusKm / 111.0; lngDelta adjusted for longitude compression
 - ELO updates real — `EloService.onResultConfirmed(sessionId, winner)` dispatches to `EloCalculationService` async
 - `getPendingResults` always loads participants first (for count + team check), then checks result status
@@ -331,6 +337,190 @@ resources/db/migration/
 - Skip conditions: any participant missing team assignment, or either team empty — logs WARN, no partial update
 - `games/service/EloService.java` deleted; replaced by `elo/service/EloService.java`
 - `GameResultService` updated: imports `elo.service.EloService`, passes `WinnerTeam` to `onResultConfirmed`
+
+### notifications — DONE
+
+**Endpoint:**
+- `POST /api/v1/users/me/push-token` — register Expo push token for the calling user (200)
+
+**Files created:**
+```
+notifications/
+  service/PushNotificationService.java   (@Async("eloTaskExecutor"), sends via Expo push API)
+  dto/SavePushTokenRequest.java          (token: String)
+auth/
+  entity/User.java                       (added pushToken VARCHAR(500) field)
+resources/db/migration/
+  V19__add_push_token_to_users.sql       (ALTER TABLE users ADD COLUMN push_token VARCHAR(500))
+```
+
+**Key notes:**
+- `sendToUser()` is `@Async("eloTaskExecutor")` — never blocks a request thread
+- Silently skips users with no push token (null/blank)
+- On `DeviceNotRegistered` error from Expo, clears the stale token from the DB automatically
+- `RestTemplate` bean must be declared (added in `AsyncConfig` or similar)
+
+---
+
+### admin-role — DONE
+
+**Endpoints (all require ADMIN role — 403 otherwise):**
+- `GET /api/v1/admin/disputes` — list all DISPUTED results with full context
+- `POST /api/v1/admin/disputes/{sessionId}/resolve` — resolve a dispute, confirms result and triggers ELO
+- `GET /api/v1/admin/sessions` — paginated list of all game sessions (any status)
+
+**Files created:**
+```
+admin/
+  controller/AdminController.java        (3 endpoints, all call requireAdmin() via service)
+  service/AdminService.java              (requireAdmin(), resolveDispute, resolveDisputeCore, getDisputes, getAllSessions)
+  dto/AdminDisputeResponse.java          (sessionId, sportName, scheduledAt, locationName, reporter/counter details, participants)
+  dto/ResolveDisputeRequest.java         (winnerTeam, scoreTeamA, scoreTeamB)
+auth/
+  entity/User.java                       (added role VARCHAR(20), default "USER", getAuthorities() returns ROLE_USER or ROLE_ADMIN)
+resources/db/migration/
+  V20__add_role_to_users.sql             (ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'USER' CHECK (role IN ('USER','ADMIN')))
+```
+
+**Key notes:**
+- `requireAdmin()` reads `user.getRole()` from `SecurityContextHolder` — throws `ForbiddenException` if not ADMIN
+- `getAuthorities()` on User entity returns `List.of(new SimpleGrantedAuthority("ROLE_" + role))` — used by Spring Security
+- `resolveDisputeCore()` is public, has no admin check — safe to call from the scheduler (different Spring bean = proxy works)
+- Admin role must be set manually in the DB: `UPDATE users SET role = 'ADMIN' WHERE email = 'admin@example.com'`
+- `getAllSessions` uses `findAllByOrderByScheduledAtDesc` — add to `GameSessionRepository` if missing
+
+---
+
+### team-rebalancing — DONE
+
+**What was built:**
+- `GET /api/v1/game-sessions/{id}/can-rebalance` — returns `{ canRebalance: boolean, reason: String }`. True only when: COMPLETED + no result exists + caller is host or Team B captain
+- `assignTeam` guard updated: if session is COMPLETED and no result exists (rebalancing window), host OR Team B captain are allowed. Pre-game (OPEN/FULL): host-only as before. Post-result: still locked
+- `GameResultRepository.existsBySessionId` added (derived Spring Data query)
+- `CanRebalanceResponse` record DTO added
+
+**Key notes:**
+- ELO reads `game_participants` fresh at calculation time — no ELO service changes needed
+- "Last write wins" if both captains rebalance simultaneously — acceptable for MVP
+
+**Files added/updated:**
+```
+games/dto/CanRebalanceResponse.java           (new record: canRebalance, reason)
+games/repository/GameResultRepository.java    (existsBySessionId)
+games/service/GameParticipationService.java   (rewritten assignTeam guard, new canRebalance method)
+games/controller/GameParticipationController.java  (GET can-rebalance endpoint)
+```
+
+---
+
+### dispute-reform — DONE
+
+**What was built:**
+- Team captain system: Team A captain = host, Team B captain = earliest TEAM_B participant by `joinedAt`
+- `isCapt` on `GameParticipantResponse` — computed in `buildResponse()` from in-memory list (no extra DB query)
+- Counter-score restricted to Team B captain in `GameResultService.disputeResult()` — 403 with captain name for non-captains
+- `disputedAt TIMESTAMP` + `auto_resolved BOOLEAN DEFAULT FALSE` on `game_results` via V21
+- `disputedAt` set on both DISPUTED transition paths in `GameResultService`
+- `AdminService.resolveDisputeCore()` extracted — no admin check, no notification, triggers ELO afterCommit. Called by `resolveDispute()` (+ admin push notification) and scheduler (+ auto-resolve notification)
+- `DisputeResolutionScheduler` — `@Component` games/service, hourly, per-game `@Transactional resolveOne()`, calls `resolveDisputeCore`, sets `autoResolved=true`, sends push afterCommit
+- Scheduler config: `levelmate.scheduler.dispute-resolution-cron` + `dispute-resolution-hours` (defaults: `0 0 * * * *`, `24`)
+
+**Files added/updated:**
+```
+games/service/DisputeResolutionScheduler.java  (new)
+games/service/GameResultService.java           (captain check, disputedAt)
+games/service/GameSessionService.java          (buildResponse with isCapt)
+games/dto/GameParticipantResponse.java         (isCapt, overloaded from())
+games/dto/GameResultResponse.java              (disputedAt)
+games/repository/GameParticipantRepository.java (findFirstBySessionIdAndTeamOrderByJoinedAtAsc)
+games/repository/GameResultRepository.java     (findUnresolvedDisputesOlderThan)
+games/entity/GameResult.java                   (disputedAt, autoResolved)
+admin/service/AdminService.java                (resolveDisputeCore extracted)
+db/migration/V21__add_disputed_at_auto_resolved_to_game_results.sql
+resources/application.yaml                    (levelmate.scheduler.* properties)
+```
+
+**Key notes:**
+- `resolveDisputeCore` self-invocation from `resolveDispute` bypasses the `@Transactional` proxy but shares the outer transaction — correct behaviour
+- Captain check applies only to counter-score (dispute). Confirmation voting is unrestricted.
+- Scheduler sends "Match auto-resolved"; admin endpoint sends "Match dispute resolved" — separate notifications, no duplication
+
+---
+
+### sport-type-aware-sessions — DONE
+
+**What was built:**
+- `target_pace VARCHAR(200)`, `grade_min VARCHAR(20)`, `grade_max VARCHAR(20)` on `game_sessions` (V25)
+- `pb_update_submitted BOOLEAN NOT NULL DEFAULT FALSE` on `game_participants` (V26)
+- `GameSessionResponse` now includes `sportSlug`, `ratingType`, `targetPace`, `gradeMin`, `gradeMax`
+- `GameParticipantResponse` now includes `pbUpdateSubmitted`
+- `CreateGameSessionRequest` now accepts `targetPace`, `gradeMin`, `gradeMax`
+- `GameSessionService.createSession`: `minLevel`/`maxLevel` only set for `ELO_COMPETITIVE`; new fields stored
+- `GameParticipationService.joinSession`: level range check wrapped in ELO_COMPETITIVE guard; `markPbSubmitted()` added
+- `GameSessionStatusService.updateStatus`: sends `PB_UPDATE_REQUEST` push to all participants afterCommit when PERFORMANCE_BASED session completes
+- `GameParticipationController`: `POST /{sessionId}/pb-submitted` endpoint added
+
+**Files added/updated:**
+```
+db/migration/V25__add_session_type_fields.sql
+db/migration/V26__add_pb_update_submitted.sql
+games/entity/GameSession.java            (targetPace, gradeMin, gradeMax fields)
+games/entity/GameParticipant.java        (pbUpdateSubmitted @Builder.Default false)
+games/dto/CreateGameSessionRequest.java  (targetPace, gradeMin, gradeMax)
+games/dto/GameSessionResponse.java       (sportSlug, ratingType, targetPace, gradeMin, gradeMax)
+games/dto/GameParticipantResponse.java   (pbUpdateSubmitted)
+games/service/GameSessionService.java    (ELO-only level fields, new fields in builder)
+games/service/GameParticipationService.java (ELO guard on level check, markPbSubmitted)
+games/service/GameSessionStatusService.java (PERFORMANCE_BASED push on complete)
+games/controller/GameParticipationController.java (pb-submitted endpoint)
+```
+
+**Key notes:**
+- PB push notification is sent via `TransactionSynchronization.afterCommit()` — fires after DB commit, never blocks
+- `pb_update_submitted` is per-participant; mobile reads `participants[].pbUpdateSubmitted` to know whether to show the PB prompt
+- Level range check guard: only ELO_COMPETITIVE sports enforce join level range; GRADE/PERFORMANCE sports skip entirely
+- `sportSlug` in `GameSessionResponse` is sourced from `Sport.slug`; `ratingType` is `RatingType.name()`
+
+---
+
+### post-session-reminders — DONE
+
+**What was built:**
+- V27 migration: `session_acknowledged BOOLEAN NOT NULL DEFAULT FALSE` on `game_participants`
+- V28 migration: `cancellation_reason_insufficient_players BOOLEAN NOT NULL DEFAULT FALSE` on `game_sessions`
+- `GameParticipant.sessionAcknowledged` field + `GameParticipationService.markSessionAcknowledged()`
+- `PATCH /api/v1/game-sessions/{sessionId}/acknowledge` endpoint — marks participant as acknowledged
+- `GameSession.cancellationReasonInsufficientPlayers` field + `GameSessionResponse` updated
+- `bulkMarkInsufficientPlayersCancellations` native query — sets flag on under-filled CANCELLED sessions after scheduled_at
+- `getPendingResults()` extended: now returns `ELO` + `PB_UPDATE` (PERFORMANCE_BASED, pb not submitted) + `SESSION_LOG` (GRADE_BASED, not acknowledged) + `CANCELLED_SESSION` (auto-cancelled, not acknowledged)
+- `GameSessionStatusService`: GRADE_BASED sessions send push notification afterCommit on COMPLETED (type `SESSION_LOG`)
+- `SessionStatusScheduler` rewritten: calls `bulkMarkInsufficientPlayersCancellations`, finds recently auto-cancelled sessions, sends push notifications afterCommit to all participants (type `SESSION_CANCELLED`)
+- `GameParticipantResponse` updated: includes `pbUpdateSubmitted` and `sessionAcknowledged` fields
+- `GameSessionResponse` updated: includes `cancellationReasonInsufficientPlayers` field
+
+**Files added/updated:**
+```
+db/migration/V27__add_session_acknowledged.sql
+db/migration/V28__add_cancellation_reason_insufficient_players.sql
+games/entity/GameParticipant.java           (sessionAcknowledged @Builder.Default false)
+games/entity/GameSession.java               (cancellationReasonInsufficientPlayers @Builder.Default false)
+games/dto/GameParticipantResponse.java      (sessionAcknowledged field)
+games/dto/GameSessionResponse.java          (cancellationReasonInsufficientPlayers field)
+games/repository/GameSessionRepository.java (5 new queries: findCompletedPerfSessions/GradeSessions PendingForUser, bulkMarkInsufficientPlayersCancellations, findRecentlyAutoCancelled, findCancelledAutoSessionsPendingForUser)
+games/service/GameSessionService.java       (getPendingResults extended for 4 types)
+games/service/GameParticipationService.java (markSessionAcknowledged added)
+games/service/GameSessionStatusService.java (GRADE_BASED push on COMPLETED)
+games/service/SessionStatusScheduler.java   (full rewrite: bulkMarkInsufficient + push notifications afterCommit)
+games/controller/GameParticipationController.java (PATCH /{sessionId}/acknowledge endpoint)
+```
+
+**Key notes:**
+- Auto-cancel push uses `afterCommit()` pattern — fires after DB commit, never blocks scheduler tick
+- `findRecentlyAutoCancelled` uses `since = now.minusSeconds(70)` (70s > 60s tick) to avoid missing sessions
+- `findCancelledAutoSessionsPendingForUser` checks `sessionAcknowledged = false` — same flag as grade sessions
+- `SESSION_LOG` and `CANCELLED_SESSION` both use `session_acknowledged` to track dismissal (different pendingTypes, same DB flag)
+
+---
 
 ### coaching — FUTURE (do not build yet)
 
@@ -395,8 +585,8 @@ resources/db/migration/
 | `games/service/GameResultService.java` | Done | reportResult, confirmResult (calls EloService), disputeResult, getResult |
 | `games/controller/GameSessionController.java` | Done | POST (201), GET paginated, GET by ID |
 | `games/controller/GameSessionStatusController.java` | Done | PATCH /{id}/status |
-| `games/controller/GameParticipationController.java` | Done | POST /{id}/join (200), POST /{id}/leave (204) |
-| `games/controller/GameResultController.java` | Done | POST result (201), GET result, POST confirm, POST dispute |
+| `games/controller/GameParticipationController.java` | Done | POST /{id}/join (200), POST /{id}/leave (204), PATCH /{id}/participants/{userId}/team (200) |
+| `games/controller/GameResultController.java` | Done | POST result (201), GET result, POST confirm, POST dispute, POST accept-counter |
 | `common/exception/Session*.java` + 17 others | Done | All handled in GlobalExceptionHandler |
 | `common/AsyncConfig.java` | Done | @EnableAsync + eloTaskExecutor (ThreadPoolTaskExecutor core=2, max=4) |
 | `db/migration/V11__add_games_played_to_user_sports.sql` | Done | INT NOT NULL DEFAULT 0 |
@@ -420,7 +610,7 @@ resources/db/migration/
 | `games/repository/ResultVoteRepository.java` | Done | existsByResultIdAndUserId |
 | `games/dto/AssignTeamRequest.java` | Done | userId + team (TEAM_A/TEAM_B) |
 | `games/dto/PendingResultResponse.java` | Done | Includes locationName + participantCount |
-| `games/service/SessionStatusScheduler.java` | Done | @Scheduled auto-transitions to IN_PROGRESS |
+| `games/service/SessionStatusScheduler.java` | Done | @Scheduled: IN_PROGRESS/CANCELLED transitions + auto-cancel push notifications afterCommit |
 | `games/service/GameSessionService.java` | Done | Added getPendingResults (loads participants first), getActiveSessionsForUser |
 | `common/exception/TeamsNotBalancedException.java` | Done | |
 | `common/exception/TimeConflictException.java` | Done | |
@@ -429,20 +619,51 @@ resources/db/migration/
 | `db/migration/V15__convert_elo_to_decimal.sql` | Done | elo_rating → DECIMAL |
 | `db/migration/V16__create_result_votes_table.sql` | Done | result_votes table |
 | `db/migration/V17__add_avatar_data_to_users.sql` | Done | avatar_data TEXT column on users |
-| `auth/entity/User.java` | Done | Added avatarData TEXT field |
+| `db/migration/V18__add_counter_proposed_state.sql` | Done | COUNTER_PROPOSED to status CHECK; counter_winner_team, counter_score_team_a/b, counter_reported_by_user_id |
+| `db/migration/V19__add_push_token_to_users.sql` | Done | push_token VARCHAR(500) on users |
+| `db/migration/V20__add_role_to_users.sql` | Done | role VARCHAR(20) NOT NULL DEFAULT 'USER' CHECK (role IN ('USER','ADMIN')) |
+| `db/migration/V21__add_disputed_at_auto_resolved_to_game_results.sql` | Done | disputed_at TIMESTAMP, auto_resolved BOOLEAN DEFAULT FALSE on game_results |
+| `db/migration/V25__add_session_type_fields.sql` | Done | target_pace VARCHAR(200), grade_min/grade_max VARCHAR(20) on game_sessions |
+| `db/migration/V26__add_pb_update_submitted.sql` | Done | pb_update_submitted BOOLEAN NOT NULL DEFAULT FALSE on game_participants |
+| `db/migration/V27__add_session_acknowledged.sql` | Done | session_acknowledged BOOLEAN NOT NULL DEFAULT FALSE on game_participants |
+| `db/migration/V28__add_cancellation_reason_insufficient_players.sql` | Done | cancellation_reason_insufficient_players BOOLEAN NOT NULL DEFAULT FALSE on game_sessions |
+| `games/entity/GameSession.java` | Done | targetPace, gradeMin, gradeMax, cancellationReasonInsufficientPlayers fields |
+| `games/entity/GameParticipant.java` | Done | pbUpdateSubmitted + sessionAcknowledged fields, @Builder.Default false |
+| `games/dto/CreateGameSessionRequest.java` | Done | targetPace, gradeMin, gradeMax fields added |
+| `games/dto/GameSessionResponse.java` | Done | sportSlug, ratingType, targetPace, gradeMin, gradeMax added; from() updated |
+| `games/dto/GameParticipantResponse.java` | Done | pbUpdateSubmitted + sessionAcknowledged fields |
+| `games/service/GameSessionService.java` | Done | ELO-only minLevel/maxLevel; new fields in builder; getPendingResults with 4 types |
+| `games/service/GameParticipationService.java` | Done | ELO guard on level check; markPbSubmitted() added |
+| `games/service/GameSessionStatusService.java` | Done | PERFORMANCE_BASED push to participants afterCommit on COMPLETED |
+| `games/controller/GameParticipationController.java` | Done | POST /{sessionId}/pb-submitted + PATCH /{sessionId}/acknowledge endpoints |
+| `auth/entity/User.java` | Done | Added avatarData TEXT, pushToken VARCHAR(500), role VARCHAR(20) fields |
 | `auth/dto/RegisterRequest.java` | Done | Added optional avatarData field |
 | `auth/service/AuthService.java` | Done | Passes avatarData to User builder |
 | `users/controller/UserProfileController.java` | Done | GET /{userId}/profile, PATCH /me/profile, GET /me/active-sessions, GET /me/pending-results |
-| `users/service/UserProfileService.java` | Done | getProfile, updateProfile (splits displayName → firstName/lastName) |
-| `users/dto/UserProfileResponse.java` | Done | Added avatarData field |
+| `users/service/UserProfileService.java` | Done | getProfile (includes role), updateProfile (splits displayName → firstName/lastName) |
+| `users/dto/UserProfileResponse.java` | Done | userId, displayName, avatarData, sports[], coachProfiles[], role |
 | `users/dto/UpdateProfileRequest.java` | Done | displayName?, avatarData? |
 | `elo/service/EloTransactionalService.java` | Done | Inner @Transactional bean to avoid @Async self-invocation proxy issue |
+| `notifications/service/PushNotificationService.java` | Done | @Async sendToUser, DeviceNotRegistered token clearing |
+| `notifications/dto/SavePushTokenRequest.java` | Done | token field |
+| `admin/controller/AdminController.java` | Done | GET /disputes, POST /disputes/{id}/resolve, GET /sessions |
+| `admin/service/AdminService.java` | Done | requireAdmin(), resolveDispute, resolveDisputeCore, getDisputes, getAllSessions |
+| `admin/dto/AdminDisputeResponse.java` | Done | Full dispute context including both score proposals and participant list |
+| `admin/dto/ResolveDisputeRequest.java` | Done | winnerTeam, scoreTeamA, scoreTeamB |
+| `games/entity/ResultStatus.java` | Done | PENDING_CONFIRMATION, COUNTER_PROPOSED, CONFIRMED, DISPUTED |
+| `games/entity/GameResult.java` | Done | Counter fields + disputedAt + autoResolved added |
+| `games/repository/GameResultRepository.java` | Done | findUnresolvedDisputesOlderThan, findAllByStatusOrderByReportedAtDesc |
+| `games/repository/GameParticipantRepository.java` | Done | findFirstBySessionIdAndTeamOrderByJoinedAtAsc |
+| `games/dto/GameParticipantResponse.java` | Done | isCapt boolean field, overloaded from(p) and from(p, isCapt) |
+| `games/dto/GameResultResponse.java` | Done | Added disputedAt field |
+| `games/service/GameSessionService.java` | Done | buildResponse computes isCapt in-memory (host=A capt, earliest TEAM_B joinedAt=B capt) |
+| `games/service/DisputeResolutionScheduler.java` | Done | Hourly cron, per-game @Transactional resolveOne(), auto-resolve push afterCommit |
 
 ---
 
 ## What NOT to Build Yet
 
-Coach booking/payment, push notifications, social feed. Auth, users, game sessions, and ELO engine are done — next feature TBD.
+Coach booking/payment, social feed. Auth, users, game sessions, ELO engine, admin role, push notifications, and dispute-reform are all done — next feature TBD.
 
 ---
 

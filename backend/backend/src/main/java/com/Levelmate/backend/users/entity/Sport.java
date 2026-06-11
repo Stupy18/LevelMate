@@ -28,6 +28,9 @@ public class Sport {
     @Column(name = "rating_type", nullable = false)
     private RatingType ratingType;
 
+    @Column(unique = true, length = 50)
+    private String slug;
+
     @Column
     private String description;
 

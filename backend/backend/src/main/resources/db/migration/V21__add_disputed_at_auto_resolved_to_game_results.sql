@@ -1,0 +1,3 @@
+ALTER TABLE game_results
+    ADD COLUMN disputed_at  TIMESTAMP,
+    ADD COLUMN auto_resolved BOOLEAN NOT NULL DEFAULT FALSE;

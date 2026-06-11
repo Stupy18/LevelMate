@@ -8,6 +8,7 @@ import com.Levelmate.backend.games.entity.TeamSide;
 import com.Levelmate.backend.games.entity.WinnerTeam;
 import com.Levelmate.backend.games.repository.GameParticipantRepository;
 import com.Levelmate.backend.games.repository.GameSessionRepository;
+import com.Levelmate.backend.notifications.service.PushNotificationService;
 import com.Levelmate.backend.users.entity.RatingType;
 import com.Levelmate.backend.users.entity.UserSport;
 import com.Levelmate.backend.users.repository.UserSportRepository;
@@ -16,6 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.*;
 
@@ -31,6 +34,7 @@ public class EloTransactionalService {
     private final GameParticipantRepository gameParticipantRepository;
     private final UserSportRepository userSportRepository;
     private final EloHistoryRepository eloHistoryRepository;
+    private final PushNotificationService pushNotificationService;
 
     @Transactional
     public void doCalculate(UUID sessionId, WinnerTeam winner) {
@@ -121,6 +125,7 @@ public class EloTransactionalService {
                     .build());
 
             us.setEloRating(newElo);
+            us.setLevel(eloToLevel(newElo));
             us.setGamesPlayed(us.getGamesPlayed() + 1);
             toSave.add(us);
         }
@@ -129,13 +134,51 @@ public class EloTransactionalService {
         eloHistoryRepository.saveAll(historyToSave);
 
         log.info("ELO: updated {} players for session {}", toSave.size(), sessionId);
+
+        // Notify all participants that their ELO has been updated
+        final List<UUID> participantIds = participants.stream()
+                .map(p -> p.getUser().getId()).toList();
+        final String sportName = session.getSport().getName();
+        final String sessionIdStr = sessionId.toString();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                for (UUID uid : participantIds) {
+                    pushNotificationService.sendToUser(uid,
+                            "Match result confirmed",
+                            "Your " + sportName + " ELO has been updated",
+                            Map.of("type", "ELO_UPDATE", "sessionId", sessionIdStr));
+                }
+            }
+        });
     }
 
     private double resolveElo(UserSport us) {
         if (us == null) return DEFAULT_ELO;
         if (us.getEloRating() != null) return us.getEloRating();
-        if (us.getLevel() != null) return 700.0 + us.getLevel() * 60.0;
+        if (us.getLevel() != null) {
+            return switch (us.getLevel()) {
+                case 1 -> 750.0;
+                case 2 -> 850.0;
+                case 3 -> 925.0;
+                case 4 -> 975.0;
+                default -> DEFAULT_ELO;
+            };
+        }
         return DEFAULT_ELO;
+    }
+
+    private static int eloToLevel(double elo) {
+        if (elo < 800) return 1;
+        if (elo < 900) return 2;
+        if (elo < 950) return 3;
+        if (elo < 1000) return 4;
+        if (elo < 1100) return 5;
+        if (elo < 1200) return 6;
+        if (elo < 1350) return 7;
+        if (elo < 1500) return 8;
+        if (elo < 1700) return 9;
+        return 10;
     }
 
     private double actualScore(WinnerTeam winner, TeamSide side) {

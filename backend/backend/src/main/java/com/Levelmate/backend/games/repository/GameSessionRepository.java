@@ -22,6 +22,8 @@ public interface GameSessionRepository extends JpaRepository<GameSession, UUID> 
 
     Page<GameSession> findAllByStatus(SessionStatus status, Pageable pageable);
 
+    Page<GameSession> findAllByOrderByScheduledAtDesc(Pageable pageable);
+
     @Query("""
             SELECT s FROM GameSession s
             WHERE s.id IN (
@@ -66,6 +68,38 @@ public interface GameSessionRepository extends JpaRepository<GameSession, UUID> 
             """, nativeQuery = true)
     int bulkTransitionToCompleted(@Param("now") Instant now);
 
+    @Modifying
+    @Query(value = """
+            UPDATE game_sessions
+               SET cancellation_reason_insufficient_players = TRUE
+             WHERE status = 'CANCELLED'
+               AND cancellation_reason_insufficient_players = FALSE
+               AND scheduled_at <= :now
+               AND (SELECT COUNT(*) FROM game_participants WHERE session_id = game_sessions.id) < min_players
+            """, nativeQuery = true)
+    int bulkMarkInsufficientPlayersCancellations(@Param("now") Instant now);
+
+    @Query("""
+            SELECT s FROM GameSession s
+            JOIN FETCH s.sport
+            WHERE s.status = 'CANCELLED'
+            AND s.cancellationReasonInsufficientPlayers = true
+            AND s.updatedAt >= :since
+            AND s.scheduledAt <= :now
+            """)
+    List<GameSession> findRecentlyAutoCancelled(
+            @Param("since") Instant since,
+            @Param("now") Instant now);
+
+    @Query("""
+            SELECT s FROM GameSession s
+            JOIN FETCH s.sport
+            WHERE s.status = 'CANCELLED'
+            AND s.cancellationReasonInsufficientPlayers = true
+            AND EXISTS (SELECT p FROM GameParticipant p WHERE p.session = s AND p.user.id = :userId AND p.sessionAcknowledged = false)
+            """)
+    List<GameSession> findCancelledAutoSessionsPendingForUser(@Param("userId") UUID userId);
+
     @Query("""
             SELECT s FROM GameSession s
             JOIN FETCH s.sport
@@ -74,6 +108,30 @@ public interface GameSessionRepository extends JpaRepository<GameSession, UUID> 
             AND s.sport.ratingType = :ratingType
             """)
     List<GameSession> findCompletedEloSessionsForUser(
+            @Param("userId") UUID userId,
+            @Param("status") SessionStatus status,
+            @Param("ratingType") RatingType ratingType);
+
+    @Query("""
+            SELECT s FROM GameSession s
+            JOIN FETCH s.sport
+            WHERE s.status = :status
+            AND s.sport.ratingType = :ratingType
+            AND EXISTS (SELECT p FROM GameParticipant p WHERE p.session = s AND p.user.id = :userId AND p.pbUpdateSubmitted = false)
+            """)
+    List<GameSession> findCompletedPerfSessionsPendingForUser(
+            @Param("userId") UUID userId,
+            @Param("status") SessionStatus status,
+            @Param("ratingType") RatingType ratingType);
+
+    @Query("""
+            SELECT s FROM GameSession s
+            JOIN FETCH s.sport
+            WHERE s.status = :status
+            AND s.sport.ratingType = :ratingType
+            AND EXISTS (SELECT p FROM GameParticipant p WHERE p.session = s AND p.user.id = :userId AND p.sessionAcknowledged = false)
+            """)
+    List<GameSession> findCompletedGradeSessionsPendingForUser(
             @Param("userId") UUID userId,
             @Param("status") SessionStatus status,
             @Param("ratingType") RatingType ratingType);

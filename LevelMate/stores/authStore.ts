@@ -36,12 +36,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const token = await getAccessToken();
       if (!token) {
-        set({ isAuthenticated: false, isLoading: false });
+        set({ isAuthenticated: false, isLoading: false, isInitialized: true });
         return;
       }
       const userId = await getUserId();
       if (!userId) {
-        set({ isAuthenticated: false, isLoading: false });
+        set({ isAuthenticated: false, isLoading: false, isInitialized: true });
         return;
       }
       const { data: profile } = await api.get(`/api/v1/users/${userId}/profile`);
@@ -52,6 +52,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           email: '',
           displayName: profile.displayName,
           avatarUrl: profile.avatarUrl ?? undefined,
+          role: profile.role ?? 'USER',
         },
         isAuthenticated: true,
         needsOnboarding,
@@ -80,6 +81,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           email,
           displayName: profile.displayName,
           avatarUrl: profile.avatarUrl ?? undefined,
+          role: profile.role ?? 'USER',
         },
         isAuthenticated: true,
         needsOnboarding,

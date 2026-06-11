@@ -2,7 +2,6 @@
   "expo": {
     "name": "LevelMate",
     "slug": "LevelMate",
-    "scheme": "levelmate",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -42,8 +41,17 @@
         {
           "photosPermission": "LevelMate needs access to your photo library to set your profile picture."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#6C47FF",
+          "sounds": []
+        }
       ]
     ],
+    "scheme": "levelmate",
     "extra": {
       "router": {},
       "eas": {

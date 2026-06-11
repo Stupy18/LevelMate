@@ -147,12 +147,32 @@ export default function SessionCard({
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            {session.minLevel != null && session.maxLevel != null ? (
-              <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 }}>
-                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '500' }}>Lvl {session.minLevel}–{session.maxLevel}</Text>
-              </View>
+            {session.ratingType === 'GRADE_BASED' ? (
+              session.gradeMin != null ? (
+                <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 }}>
+                  <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '500' }}>
+                    {session.gradeMax != null ? `${session.gradeMin}–${session.gradeMax}` : `${session.gradeMin}+`}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>All grades</Text>
+              )
+            ) : session.ratingType === 'PERFORMANCE_BASED' ? (
+              session.targetPace != null ? (
+                <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 }}>
+                  <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '500' }}>{session.targetPace}</Text>
+                </View>
+              ) : (
+                <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>Group training</Text>
+              )
             ) : (
-              <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>All levels</Text>
+              session.minLevel != null && session.maxLevel != null ? (
+                <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 }}>
+                  <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '500' }}>Lvl {session.minLevel}–{session.maxLevel}</Text>
+                </View>
+              ) : (
+                <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>All levels</Text>
+              )
             )}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
               <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center' }}>

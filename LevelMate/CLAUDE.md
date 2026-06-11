@@ -74,11 +74,12 @@ app/
     login.tsx
     register.tsx
   (tabs)/
-    _layout.tsx             ← Tabs: Discover, My Games, Create, Profile
+    _layout.tsx             ← Tabs: Discover, My Games, Create, Profile (+ Admin if role=ADMIN)
     discover.tsx
     my-games.tsx
     create.tsx
     profile.tsx
+    admin.tsx               ← ADMIN-only tab: Disputes + All Sessions
   onboarding/
     sports.tsx              ← sport picker shown after first registration
   session/
@@ -105,12 +106,17 @@ Token keys in SecureStore: `levelmate_access_token`, `levelmate_refresh_token`, 
 ## API Notes
 
 - Backend returns `GameSessionResponse` with flat `sportId`/`sportName` fields — NOT a nested `sport` object
-- `GET /api/v1/users/{userId}/profile` returns `{ userId, displayName, avatarUrl, avatarData, sports[], coachProfiles[] }`
+- `GET /api/v1/users/{userId}/profile` returns `{ userId, displayName, avatarUrl, avatarData, sports[], coachProfiles[], role }` where `role` is `'USER'` or `'ADMIN'`
   - `sports[].sportId` is a UUID — always use this when sending `sportId` to backend, not hard-coded strings
 - `PATCH /api/v1/users/me/profile` — body: `{ displayName?, avatarData? }`. Null `avatarData` clears the avatar
 - `GET /api/v1/game-sessions` returns `Page<GameSessionResponse>` — access via `.content` or `.pages[].content`
 - `GET /api/v1/game-sessions/{id}/result` returns 404 if no result reported yet — handle with try/catch, return null
 - `GET /api/v1/users/me/pending-results` returns `PendingResult[]` with `locationName` and `participantCount` fields
+- `PATCH /api/v1/game-sessions/{id}/participants/{userId}/team` — assign team (body: `{ userId, team }`)
+- `POST /api/v1/game-sessions/{id}/result/accept-counter` — original reporter accepts the counter-score proposal
+- `GET /api/v1/admin/disputes` — admin only; returns dispute list with both score proposals
+- `POST /api/v1/admin/disputes/{sessionId}/resolve` — admin only; body: `{ winnerTeam, scoreTeamA?, scoreTeamB? }`
+- `GET /api/v1/admin/sessions` — admin only; paginated all-sessions list
 
 ---
 
@@ -224,6 +230,48 @@ stores/authStore.ts         ← register() accepts avatarData
 
 ---
 
+### team-rebalancing — DONE
+
+**What was built:**
+- "Review Teams" button shown to captains on COMPLETED sessions with no result yet (reads `GET /api/v1/game-sessions/{id}/can-rebalance`)
+- Tapping it opens a full-screen modal with the same 3-column team layout (Team A | Bench if any | Team B)
+- Changes are made in local state (`rebalanceParticipants`) — nothing is saved until "Confirm Teams"
+- "Confirm Teams" batch-PATCHes only the changed participants, then invalidates the session query
+- Last-player-off-team guard: Alert fires and the move is prevented if it would empty a team
+- Unbalanced-teams guard on open: Alert if one team is already empty when modal opens
+- Report Result button stays available at all times — review is optional, not a gate
+- `can-rebalance` query only enabled when `session.status === 'COMPLETED' && result === null && isParticipant`
+
+**Key files:**
+```
+app/session/[id].tsx    ← canRebalanceData query, openRebalanceModal/rebalanceMovePlayer/confirmRebalance, modal JSX
+```
+
+---
+
+### admin-tab — DONE
+
+**What was built:**
+- `app/(tabs)/admin.tsx` — two-tab screen (Disputes / All Sessions), visible only to ADMIN users
+- Disputes tab: lists all DISPUTED results from `GET /api/v1/admin/disputes`; each card shows both score proposals, a "Resolve" button that opens a modal to pick winner + optional scores
+- All Sessions tab: paginated list of every game session via `GET /api/v1/admin/sessions`
+- Tab visibility: `_layout.tsx` reads `isAdmin` from `authStore`; sets `href: isAdmin ? undefined : null` on the Admin tab — `null` hides it from the tab bar completely
+- `authStore` reads `role` from `GET /api/v1/users/{userId}/profile` response at initialize time; exposes `isAdmin` derived state
+
+**Key files:**
+```
+app/(tabs)/admin.tsx          ← disputes + all sessions admin screen
+app/(tabs)/_layout.tsx        ← href: isAdmin ? undefined : null for Admin tab
+stores/authStore.ts           ← reads profile.role, sets role state
+```
+
+**Key notes:**
+- `href: null` in Expo Router Tabs completely hides a tab from the tab bar (no visible tab, no accessible route for non-admins)
+- Admin account must have `role = 'ADMIN'` in the database — set manually: `UPDATE users SET role = 'ADMIN' WHERE email = '...'`
+- Admin account also needs at least one sport in their profile or they'll be redirected to onboarding
+
+---
+
 ## OpenSpec Workflow
 
 Changes are tracked in `openspec/changes/<name>/`. Each change has:
@@ -270,6 +318,132 @@ Backend must be running at `http://localhost:8080` (or `HOST_IP:8080` for physic
 
 ---
 
+### dispute-reform — DONE
+
+**What was built:**
+- Captain badges (Shield icon) next to each team's captain in the team column view — read from `isCapt` on participant, never derived client-side
+- PENDING_CONFIRMATION non-reporter view: "Dispute with Counter-Score" button only shown if `myParticipant.isCapt && myParticipant.team === 'TEAM_B'`; all other Team B members see a message identifying their captain by name
+- DISPUTED card: amber warning with 24-hour auto-resolve message; countdown "Auto-resolves in approximately X hours" computed from `result.disputedAt` when present
+- `isCapt: boolean` added to `GameParticipant` type; `disputedAt?: string` added to `GameResult` type
+
+**Key files:**
+```
+types/index.ts              ← isCapt on GameParticipant, disputedAt on GameResult
+app/session/[id].tsx        ← captain badge, restricted dispute button, auto-resolve countdown
+```
+
+---
+
+---
+
+### sport-system-revamp — DONE
+
+**What was built:**
+- 12 new sports added (Badminton, Table Tennis, Squash, Futsal, Handball, Rugby, Pickleball, Boxing, Martial Arts — ELO; Rock Climbing — GRADE_BASED; Weightlifting, Rowing — PERFORMANCE_BASED)
+- `slug` column on sports (e.g. `basketball`, `rock_climbing`) — used for sport colour mapping
+- `sport_metrics` table: per-sport metric definitions (key, label, inputType, unit, isRequired, displayOrder)
+- `performance_pbs` extended with `metric_key`, `metric_value_text`, `metric_value_number` columns; `distance_meters`/`time_seconds` made nullable; partial unique index `(user_id, sport_id, metric_key) WHERE metric_key IS NOT NULL`
+- Bouldering grades migrated from `user_sports.grade` → `performance_pbs` with `metric_key = 'current_grade'`
+- `GET /api/v1/sports/{sportId}/metrics` — public endpoint returning metric definitions per sport
+- Profile response (`GET /api/v1/users/{userId}/profile`) now includes `sportSlug` and `metrics[]` on each sport summary
+- Add/Update sport endpoints now accept `metrics: [{metricKey, value}]` instead of `level/grade/eloRating`; `self_reported_level` metric is mirrored to `user_sports.level` for join level-range checks
+- `lib/sportColors.ts` — per-slug colour map + fallback hash function
+- `components/sports/SportMetricInput.tsx` — dynamic metric form: number dots (1-10), number with unit, duration (mm:ss / h:mm:ss), V-grade picker with V/Font toggle, French sport grade picker, text
+- Profile sport cards: per-ratingType display (ELO = ELO badge + level dots; GRADE_BASED = grade badges; PERFORMANCE_BASED = metric rows); left colour strip using sport colour; "Edit" button per card
+- Edit Sport modal: fetches metric definitions, pre-fills current values, dynamic form
+- Add Sport modal: fetches metric definitions after sport selection, dynamic form
+- Onboarding screen: ELO sports → level picker → `self_reported_level`; GRADE_BASED → text input → `current_grade`; PERFORMANCE_BASED → no metrics (set later from profile)
+
+**Key files:**
+```
+backend/src/main/resources/db/migration/V22__add_sport_slug_and_new_sports.sql
+backend/src/main/resources/db/migration/V23__create_sport_metrics.sql
+backend/src/main/resources/db/migration/V24__extend_performance_pbs.sql
+backend/src/main/java/.../users/entity/SportMetric.java
+backend/src/main/java/.../users/repository/SportMetricRepository.java
+backend/src/main/java/.../users/service/SportsCatalogService.java
+backend/src/main/java/.../users/controller/SportsCatalogController.java
+backend/src/main/java/.../users/service/UserSportProfileService.java
+backend/src/main/java/.../users/service/UserProfileService.java
+backend/src/main/java/.../users/dto/SportMetricDefinitionResponse.java
+backend/src/main/java/.../users/dto/MetricValueRequest.java
+lib/sportColors.ts
+components/sports/SportMetricInput.tsx
+app/(tabs)/profile.tsx
+app/onboarding/sports.tsx
+```
+
+**Key notes:**
+- Sport colour is derived from `sportSlug` — use `getSportColour(slug)` from `lib/sportColors.ts`
+- `inputType` values: `number` (with `unit = '1-10'` → dot picker, else text), `duration` (with `unit = 'mm:ss'` or `'h:mm:ss'`), `grade_v`, `grade_french_sport`, `text`
+- Duration values stored as total seconds (numeric string) in `metric_value_number`; formatted client-side
+- V-grade picker supports V-scale (VB, V0–V17) and Font scale (5–8C+) with a toggle
+- `user_sports.level` is still populated (from `self_reported_level` metric) for join/ELO compatibility
+- All `GET /api/v1/sports/**` are public (no auth required)
+
+---
+
+### sport-type-aware-sessions — DONE
+
+**What was built:**
+- `GameSession` type: `sportSlug?`, `ratingType?`, `targetPace?`, `gradeMin?`, `gradeMax?` fields added
+- `GameParticipant` type: `pbUpdateSubmitted: boolean` field added
+- `create.tsx`: sport-type-aware form — ELO shows Team Size stepper (maxPlayers = teamSize×2) + skill level range; GRADE_BASED shows grade range chip pickers (from `/sports/{id}/metrics`) + "Group Session" chip; PERFORMANCE_BASED shows target pace text input + "Group Training" chip
+- `session/[id].tsx`: team column view gated to ELO only (`isEloCompetitive`); result query disabled for non-ELO; PERFORMANCE_BASED completed sessions show PB update prompt + bottom sheet; Details row shows grade range or target pace by type; new `pb-submitted` mutation
+- `SessionCard.tsx`: bottom-left badge shows grade range for GRADE_BASED, target pace for PERFORMANCE_BASED, level range for ELO
+
+**Key files:**
+```
+types/index.ts
+app/(tabs)/create.tsx
+app/session/[id].tsx
+components/sessions/SessionCard.tsx
+```
+
+**Key notes:**
+- `showPbPrompt` is computed pre-hook (using `isParticipantEarly`) so it can gate query `enabled` without violating hook rules
+- Result query's `enabled` is guarded to ELO_COMPETITIVE only — avoids unnecessary 404 calls for non-ELO sessions
+- PB update sheet pre-fills from `GET /api/v1/users/{id}/profile` (cached under `['profile', userId]`); saves via `PUT .../sports/{sportId}` then `POST .../pb-submitted`
+- `pbUpdateSubmitted` drives the prompt: once submitted, the prompt disappears on next session refetch
+
+---
+
+### post-session-reminders — DONE
+
+**What was built:**
+- `PendingResultSheet` extended with 3 new `pendingType` values: `PB_UPDATE`, `SESSION_LOG`, `CANCELLED_SESSION`
+- `badgeFor()`, `headlineFor()`, `ctaLabelFor()` helpers in `PendingResultSheet.tsx` return type-specific content for all 5 pending types
+- Session detail auto-acknowledges GRADE_BASED COMPLETED sessions and auto-cancelled sessions on mount (PATCH `/{id}/acknowledge`)
+- Cancellation info card in session detail for `cancellationReasonInsufficientPlayers` sessions
+- `DurationInput` extracted from `SportMetricInput.tsx` → `components/sports/DurationInput.tsx` (reusable, optional `borderColor`/`backgroundColor` override props)
+- PB sheet keyboard fix: no `KeyboardAvoidingView`; `TouchableWithoutFeedback` backdrop; `InputAccessoryView` nativeID `'pb-number-done'` for number inputs; pinned footer buttons outside `ScrollView`
+- PB sheet pre-fills metric fields with stored current PB values; green highlight when new value improves on current
+- PB improvement logic: duration = green if lower (faster), number = green if higher (better)
+- `LevelDots` updated with `newPlayer` prop — dots 5-10 shown at opacity 0.3 when `newPlayer=true`
+- Edit Sport modal level lock: `gamesPlayed >= 1` → locked with ELO message; active session → locked with session message
+
+**Key files:**
+```
+components/modals/PendingResultSheet.tsx   ← badgeFor/headlineFor/ctaLabelFor helpers, all 5 pendingType branches
+components/sports/DurationInput.tsx        ← extracted from SportMetricInput.tsx, standalone component
+components/sports/LevelDots.tsx            ← newPlayer prop, opacity 0.3 for dots 5-10 when newPlayer=true
+components/sports/SportMetricInput.tsx     ← DurationInput extracted, DoneToolbar InputAccessoryView added
+app/session/[id].tsx                       ← acknowledge mutation, cancellation banner, PB sheet keyboard fix, PB pre-fill
+app/(tabs)/profile.tsx                     ← LevelDots newPlayer prop, levelLockedByElo/levelLockedBySession conditions
+app/user/[id].tsx                          ← LevelDots newPlayer prop
+types/index.ts                             ← pbUpdateSubmitted/sessionAcknowledged on GameParticipant, cancellationReasonInsufficientPlayers on GameSession, all 7 pendingType values
+```
+
+**Key notes:**
+- `acknowledgeSession` fires on mount via `useEffect` — fires once when session + participant data loads and condition is met
+- GRADE_BASED and CANCELLED auto-sessions both use same `sessionAcknowledged` flag
+- `DurationInput` uses backfill-from-right digit accumulation; stores total seconds as numeric string
+- PB pre-fill: two-effect approach — one on `showPbSheet` change, one on `pbValuesKey` (JSON-serialized PB values) change
+- Level lock: `levelLockedByElo = isElo && gamesPlayed >= 1`; `levelLockedBySession = isElo && gamesPlayed === 0 && hasActiveSportSession`; distinct warning messages for each case
+- InputAccessoryView IDs: `'duration-input-toolbar'` (DurationInput), `'pb-number-done'` (PB sheet), `'sport-metric-done-toolbar'` (SportMetricInput non-duration)
+
+---
+
 ## What NOT to Build Yet
 
-Coach booking/payment, push notifications, social feed, ELO history screen, leaderboard screen, search/filter by sport on profile.
+Coach booking/payment, social feed, ELO history screen, leaderboard screen, search/filter by sport on profile.

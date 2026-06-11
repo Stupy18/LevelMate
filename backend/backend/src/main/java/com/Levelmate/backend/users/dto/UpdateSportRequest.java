@@ -1,7 +1,5 @@
 package com.Levelmate.backend.users.dto;
 
-public record UpdateSportRequest(
-        Double eloRating,
-        String grade,
-        Integer level
-) {}
+import java.util.List;
+
+public record UpdateSportRequest(List<MetricValueRequest> metrics) {}

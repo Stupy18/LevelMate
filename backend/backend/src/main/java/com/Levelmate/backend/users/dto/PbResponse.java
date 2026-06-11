@@ -7,8 +7,8 @@ import java.util.UUID;
 
 public record PbResponse(
         UUID pbId,
-        int distanceMeters,
-        int timeSeconds,
+        Integer distanceMeters,
+        Integer timeSeconds,
         Instant recordedAt
 ) {
     public static PbResponse from(PerformancePb pb) {

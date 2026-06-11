@@ -1,26 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
+  InputAccessoryView,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Text,
   TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import SportChip from '../../components/sports/SportChip';
 import LevelDots from '../../components/sports/LevelDots';
+import SportMetricInput from '../../components/sports/SportMetricInput';
 import Avatar from '../../components/ui/Avatar';
 import EloBadge from '../../components/ui/EloBadge';
 import api from '../../lib/api';
+import { getSportColour } from '../../lib/sportColors';
 import { useAuthStore } from '../../stores/authStore';
-import type { UserProfile, Sport } from '../../types';
+import type { GameSession, ProfileSport, Sport, SportMetricDefinition, SportMetricValue, UserProfile } from '../../types';
 
 interface EloHistoryEntry {
   eloDelta: number;
@@ -67,15 +74,56 @@ function SportEloHistorySection({ userId, sportId }: { userId: string; sportId: 
   );
 }
 
+const ELO_NEXT_THRESHOLDS = [800, 900, 950, 1000, 1100, 1200, 1350, 1500, 1700];
+
+function pointsToNextLevel(level: number, elo: number): string | null {
+  if (level >= 10 || level < 1) return null;
+  const pts = Math.ceil(ELO_NEXT_THRESHOLDS[level - 1] - elo);
+  return pts > 0 ? `${pts} pts to Level ${level + 1}` : null;
+}
+
+function formatMetricValue(metric: SportMetricValue): string | null {
+  if (!metric.value) return null;
+  if (metric.inputType === 'duration') {
+    const total = parseInt(metric.value) || 0;
+    if (total === 0) return null;
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (metric.unit === 'h:mm:ss' || h > 0) {
+      return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+  return metric.value;
+}
+
+function buildMetricValueMap(metrics: SportMetricValue[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const m of metrics) {
+    if (m.value !== null && m.value !== undefined) {
+      map[m.metricKey] = m.value;
+    }
+  }
+  return map;
+}
+
 export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
   const queryClient = useQueryClient();
+
+  // ── Add Sport state ────────────────────────────────────────────────────────
   const [showAddSport, setShowAddSport] = useState(false);
   const [selectedSportId, setSelectedSportId] = useState<string | null>(null);
-  const [selectedLevel, setSelectedLevel] = useState(5);
-  const [gradeInput, setGradeInput] = useState('');
+  const [addMetricValues, setAddMetricValues] = useState<Record<string, string>>({});
+  const [addGradeScales, setAddGradeScales] = useState<Record<string, 'v' | 'font'>>({});
 
-  // Edit profile state
+  // ── Edit Sport state ────────────────────────────────────────────────────────
+  const [editSportId, setEditSportId] = useState<string | null>(null);
+  const [editMetricValues, setEditMetricValues] = useState<Record<string, string>>({});
+  const [editGradeScales, setEditGradeScales] = useState<Record<string, 'v' | 'font'>>({});
+
+  // ── Edit Profile state ──────────────────────────────────────────────────────
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [editDisplayName, setEditDisplayName] = useState('');
   const [editAvatarData, setEditAvatarData] = useState<string | null>(null);
@@ -106,32 +154,92 @@ export default function ProfileScreen() {
     },
   });
 
+  const { data: addSportMetrics = [], isLoading: isLoadingAddMetrics } = useQuery<SportMetricDefinition[]>({
+    queryKey: ['sport-metrics', selectedSportId],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/v1/sports/${selectedSportId}/metrics`);
+      return data;
+    },
+    enabled: !!selectedSportId,
+  });
+
+  const { data: editSportMetrics = [], isLoading: isLoadingEditMetrics } = useQuery<SportMetricDefinition[]>({
+    queryKey: ['sport-metrics', editSportId],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/v1/sports/${editSportId}/metrics`);
+      return data;
+    },
+    enabled: !!editSportId,
+  });
+
+  const { data: activeSessions = [] } = useQuery<GameSession[]>({
+    queryKey: ['active-sessions', user?.id],
+    queryFn: async () => {
+      const { data } = await api.get('/api/v1/users/me/active-sessions');
+      return data;
+    },
+    enabled: !!user?.id,
+    staleTime: 30_000,
+  });
+  const activeSessionSportIds = new Set(activeSessions.map((s) => s.sportId));
+
+  // Pre-fill edit metric values when opening edit modal
+  useEffect(() => {
+    if (editSportId && profile) {
+      const sport = profile.sports.find((s) => s.sportId === editSportId);
+      setEditMetricValues(buildMetricValueMap(sport?.metrics ?? []));
+      setEditGradeScales({});
+    }
+  }, [editSportId, profile]);
+
+  // Reset add metric values when sport selection changes
+  useEffect(() => {
+    setAddMetricValues({});
+    setAddGradeScales({});
+  }, [selectedSportId]);
+
   const addedSportIds = new Set((profile?.sports ?? []).map((s) => s.sportId));
   const availableToAdd = sportsCatalog.filter((s) => !addedSportIds.has(s.id));
-
-  const selectedSport = availableToAdd.find((s) => s.id === selectedSportId);
-  const selectedRatingType = selectedSport?.ratingType ?? 'ELO_COMPETITIVE';
+  const selectedSport = sportsCatalog.find((s) => s.id === selectedSportId);
+  const isAddingEloSport = selectedSport?.ratingType === 'ELO_COMPETITIVE';
 
   const { mutate: addSport, isPending: isAddingSport } = useMutation({
     mutationFn: async () => {
-      const payload: Record<string, any> = { sportId: selectedSportId };
-      if (selectedRatingType === 'GRADE_BASED') {
-        payload.grade = gradeInput.trim() || undefined;
-      } else {
-        payload.level = selectedLevel;
-      }
-      await api.post(`/api/v1/users/${user!.id}/sports`, payload);
+      const metrics = Object.entries(addMetricValues)
+        .filter(([, v]) => v.trim())
+        .map(([metricKey, value]) => ({ metricKey, value }));
+      await api.post(`/api/v1/users/${user!.id}/sports`, { sportId: selectedSportId, metrics });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['user-sports', user?.id] });
       setShowAddSport(false);
       setSelectedSportId(null);
-      setSelectedLevel(5);
-      setGradeInput('');
+      setAddMetricValues({});
     },
     onError: () => {
       Alert.alert('Error', 'Failed to add sport. It may already be on your profile.');
+    },
+  });
+
+  const { mutate: updateSport, isPending: isUpdatingSport } = useMutation({
+    mutationFn: async () => {
+      const metrics = Object.entries(editMetricValues)
+        .filter(([, v]) => v.trim())
+        .map(([metricKey, value]) => ({ metricKey, value }));
+      await api.put(`/api/v1/users/${user!.id}/sports/${editSportId}`, { metrics });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
+      setEditSportId(null);
+    },
+    onError: (error: any) => {
+      const code = error?.response?.data?.errorCode;
+      if (code === 'LEVEL_LOCKED_ACTIVE_SESSION') {
+        Alert.alert('Level Locked', error.response.data.message);
+      } else {
+        Alert.alert('Error', 'Failed to update sport. Please try again.');
+      }
     },
   });
 
@@ -175,6 +283,10 @@ export default function ProfileScreen() {
     setShowEditProfile(true);
   }
 
+  function openEditSport(sportId: string) {
+    setEditSportId(sportId);
+  }
+
   if (isLoading) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC', alignItems: 'center', justifyContent: 'center' }}>
@@ -195,8 +307,135 @@ export default function ProfileScreen() {
     elevation: 1,
   } as const;
 
+  function renderSportCard(s: ProfileSport) {
+    const colour = getSportColour(s.sportSlug);
+    const filledMetrics = s.metrics.filter((m) => m.value !== null && m.value !== undefined && m.value !== '');
+
+    return (
+      <View key={s.sportId} style={{ ...cardStyle, borderLeftWidth: 3, borderLeftColor: colour }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={{ color: '#0D0D14', fontSize: 15, fontWeight: '600', flex: 1 }}>{s.sportName}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            {s.ratingType === 'ELO_COMPETITIVE' && s.eloRating != null && (
+              <EloBadge elo={s.eloRating} />
+            )}
+            <Pressable onPress={() => openEditSport(s.sportId)} hitSlop={8}>
+              <Text style={{ color: '#6C47FF', fontSize: 13, fontWeight: '600' }}>Edit</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {s.ratingType === 'ELO_COMPETITIVE' && s.sportSlug !== 'martial_arts' && (
+          <>
+            {s.level != null && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <LevelDots level={s.level} newPlayer={s.gamesPlayed === 0} />
+                <Text style={{ color: '#6B7280', fontSize: 12 }}>Level {s.level}/10</Text>
+              </View>
+            )}
+            <Text style={{ color: '#9CA3AF', fontSize: 12, marginBottom: 2 }}>
+              {s.gamesPlayed} game{s.gamesPlayed === 1 ? '' : 's'} played
+            </Text>
+            {s.gamesPlayed > 0 && s.eloRating != null && s.level != null ? (
+              <Text style={{ color: '#6C47FF', fontSize: 12, fontWeight: '600' }}>
+                {pointsToNextLevel(s.level, s.eloRating) ?? 'Max level reached!'}
+              </Text>
+            ) : s.gamesPlayed === 0 ? (
+              <Text style={{ color: '#9CA3AF', fontSize: 12 }}>
+                Play your first match to start your ELO journey
+              </Text>
+            ) : null}
+            {user?.id && <SportEloHistorySection userId={user.id} sportId={s.sportId} />}
+          </>
+        )}
+
+        {s.ratingType === 'ELO_COMPETITIVE' && s.sportSlug === 'martial_arts' && (() => {
+          const discipline = s.metrics.find((m) => m.metricKey === 'discipline')?.value;
+          const beltOrLevel = s.metrics.find((m) => m.metricKey === 'belt_or_level')?.value;
+          return (
+            <>
+              {discipline ? (
+                <Text style={{ color: '#0D0D14', fontSize: 13, fontWeight: '600', marginBottom: 4 }}>
+                  {discipline}
+                </Text>
+              ) : null}
+              {beltOrLevel ? (
+                <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+                  <View style={{ backgroundColor: colour + '22', paddingHorizontal: 10, paddingVertical: 2, borderRadius: 8 }}>
+                    <Text style={{ color: colour, fontSize: 13, fontWeight: '700' }}>{beltOrLevel}</Text>
+                  </View>
+                </View>
+              ) : null}
+              <Text style={{ color: '#9CA3AF', fontSize: 12, marginBottom: 2 }}>
+                {s.gamesPlayed} game{s.gamesPlayed === 1 ? '' : 's'} played
+              </Text>
+              {s.gamesPlayed > 0 && s.eloRating != null && s.level != null ? (
+                <Text style={{ color: '#6C47FF', fontSize: 12, fontWeight: '600' }}>
+                  {pointsToNextLevel(s.level, s.eloRating) ?? 'Max level reached!'}
+                </Text>
+              ) : s.gamesPlayed === 0 ? (
+                <Text style={{ color: '#9CA3AF', fontSize: 12 }}>
+                  Play your first match to start your ELO journey
+                </Text>
+              ) : null}
+              {user?.id && <SportEloHistorySection userId={user.id} sportId={s.sportId} />}
+            </>
+          );
+        })()}
+
+        {s.ratingType === 'GRADE_BASED' && (
+          <>
+            {filledMetrics.slice(0, 2).map((m) => (
+              <View key={m.metricKey} style={{ flexDirection: 'row', gap: 6, marginBottom: 4, alignItems: 'center' }}>
+                <Text style={{ color: '#9CA3AF', fontSize: 12 }}>{m.label}:</Text>
+                <View style={{ backgroundColor: colour + '22', paddingHorizontal: 10, paddingVertical: 2, borderRadius: 8 }}>
+                  <Text style={{ color: colour, fontSize: 13, fontWeight: '700' }}>{m.value}</Text>
+                </View>
+              </View>
+            ))}
+            <Text style={{ color: '#9CA3AF', fontSize: 12, marginTop: 2 }}>
+              {s.gamesPlayed} game{s.gamesPlayed === 1 ? '' : 's'} played
+            </Text>
+          </>
+        )}
+
+        {s.ratingType === 'PERFORMANCE_BASED' && (
+          <>
+            {filledMetrics.slice(0, 3).map((m) => {
+              const display = formatMetricValue(m);
+              if (!display) return null;
+              return (
+                <View key={m.metricKey} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text style={{ color: '#9CA3AF', fontSize: 12 }}>{m.label}</Text>
+                  <Text style={{ color: '#0D0D14', fontSize: 12, fontWeight: '600' }}>
+                    {display}{m.unit && m.inputType !== 'duration' ? ` ${m.unit}` : ''}
+                  </Text>
+                </View>
+              );
+            })}
+            {filledMetrics.length === 0 && (
+              <Text style={{ color: '#9CA3AF', fontSize: 12 }}>No personal bests recorded yet</Text>
+            )}
+            <Text style={{ color: '#9CA3AF', fontSize: 12, marginTop: 2 }}>
+              {s.gamesPlayed} session{s.gamesPlayed === 1 ? '' : 's'} logged
+            </Text>
+          </>
+        )}
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID="sport-metric-done">
+          <View style={{ backgroundColor: '#F8F8F8', borderTopWidth: 0.5, borderTopColor: '#E0E0E0', padding: 8, alignItems: 'flex-end' }}>
+            <TouchableOpacity onPress={Keyboard.dismiss}>
+              <Text style={{ color: '#007AFF', fontSize: 17, fontWeight: '600' }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40 }}>
 
         {/* Header */}
@@ -232,29 +471,7 @@ export default function ProfileScreen() {
             No sports added yet. Add one below!
           </Text>
         ) : (
-          (profile!.sports).map((s) => (
-            <View key={s.sportId} style={cardStyle}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <Text style={{ color: '#0D0D14', fontSize: 15, fontWeight: '600' }}>{s.sportName}</Text>
-                {s.ratingType === 'ELO_COMPETITIVE' && s.eloRating != null && (
-                  <EloBadge elo={s.eloRating} />
-                )}
-              </View>
-              {s.level != null && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <LevelDots level={s.level} />
-                  <Text style={{ color: '#6B7280', fontSize: 12 }}>Level {s.level}/10</Text>
-                </View>
-              )}
-              {s.ratingType === 'GRADE_BASED' && s.grade && (
-                <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 4 }}>Grade: {s.grade}</Text>
-              )}
-              <Text style={{ color: '#9CA3AF', fontSize: 12 }}>{s.gamesPlayed} game{s.gamesPlayed === 1 ? '' : 's'} played</Text>
-              {s.ratingType === 'ELO_COMPETITIVE' && user?.id && (
-                <SportEloHistorySection userId={user.id} sportId={s.sportId} />
-              )}
-            </View>
-          ))
+          (profile!.sports).map((s) => renderSportCard(s))
         )}
 
         <Pressable
@@ -314,13 +531,12 @@ export default function ProfileScreen() {
         </Pressable>
       </ScrollView>
 
-      {/* Edit Profile Modal */}
+      {/* ── Edit Profile Modal ─────────────────────────────────────────────── */}
       <Modal visible={showEditProfile} transparent animationType="slide" onRequestClose={() => setShowEditProfile(false)}>
         <View style={{ flex: 1, backgroundColor: '#00000060', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
             <Text style={{ color: '#0D0D14', fontSize: 18, fontWeight: '700', marginBottom: 24 }}>Edit Profile</Text>
 
-            {/* Avatar */}
             <View style={{ alignItems: 'center', marginBottom: 24 }}>
               <Pressable onPress={pickAvatarForEdit}>
                 {editAvatarData ? (
@@ -362,7 +578,6 @@ export default function ProfileScreen() {
               </Text>
             </View>
 
-            {/* Display name */}
             <Text style={{ color: '#9CA3AF', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
               Display name
             </Text>
@@ -378,7 +593,6 @@ export default function ProfileScreen() {
               returnKeyType="done"
             />
 
-            {/* Buttons */}
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <Pressable
                 onPress={() => setShowEditProfile(false)}
@@ -404,10 +618,22 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      {/* Add Sport Modal */}
+      {/* ── Add Sport Modal ────────────────────────────────────────────────── */}
       <Modal visible={showAddSport} transparent animationType="slide" onRequestClose={() => setShowAddSport(false)}>
         <View style={{ flex: 1, backgroundColor: '#00000060', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+          {Platform.OS === 'ios' && (
+            <InputAccessoryView nativeID="sport-metric-done">
+              <View style={{ backgroundColor: '#F8F8F8', borderTopWidth: 0.5, borderTopColor: '#E0E0E0', padding: 8, alignItems: 'flex-end' }}>
+                <TouchableOpacity onPress={Keyboard.dismiss}>
+                  <Text style={{ color: '#007AFF', fontSize: 17, fontWeight: '600' }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </InputAccessoryView>
+          )}
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={{ flex: 1 }} />
+          </TouchableWithoutFeedback>
+          <View style={{ backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, maxHeight: '90%' }}>
             <Text style={{ color: '#0D0D14', fontSize: 18, fontWeight: '700', marginBottom: 16 }}>Add Sport</Text>
 
             {availableToAdd.length === 0 ? (
@@ -420,67 +646,203 @@ export default function ProfileScreen() {
               </ScrollView>
             )}
 
-            {selectedRatingType === 'GRADE_BASED' ? (
-              <View style={{ marginBottom: 20 }}>
-                <Text style={{ color: '#9CA3AF', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
-                  Grade
-                </Text>
-                <TextInput
-                  style={{
-                    backgroundColor: '#F8F9FC', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
-                    fontSize: 15, color: '#0D0D14', borderWidth: 1.5, borderColor: gradeInput ? '#6C47FF' : '#E5E7EB',
-                  }}
-                  placeholder="e.g. V5, 6a, 5.10b"
-                  placeholderTextColor="#9CA3AF"
-                  value={gradeInput}
-                  onChangeText={setGradeInput}
-                  autoCapitalize="none"
-                />
-              </View>
-            ) : (
-              <View style={{ marginBottom: 20 }}>
-                <Text style={{ color: '#9CA3AF', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
-                  Skill Level: {selectedLevel}/10
-                </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                  <Pressable
-                    onPress={() => setSelectedLevel(Math.max(1, selectedLevel - 1))}
-                    style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F2F3F7', borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <Text style={{ color: '#0D0D14', fontSize: 20, lineHeight: 22 }}>−</Text>
-                  </Pressable>
-                  <Text style={{ color: '#0D0D14', fontSize: 18, fontWeight: '600', minWidth: 30, textAlign: 'center' }}>{selectedLevel}</Text>
-                  <Pressable
-                    onPress={() => setSelectedLevel(Math.min(10, selectedLevel + 1))}
-                    style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F2F3F7', borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <Text style={{ color: '#0D0D14', fontSize: 20, lineHeight: 22 }}>+</Text>
-                  </Pressable>
-                </View>
-              </View>
+            {selectedSportId && (
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ maxHeight: 340 }}>
+                {isLoadingAddMetrics ? (
+                  <ActivityIndicator color="#6C47FF" style={{ marginVertical: 20 }} />
+                ) : (
+                  <>
+                    {addSportMetrics.map((metric) => (
+                      <View key={metric.metricKey} style={{ marginBottom: 20 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                          <Text style={{ color: '#9CA3AF', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                            {metric.label}{metric.isRequired ? ' *' : ''}
+                          </Text>
+                          {!metric.isRequired && (
+                            <Text style={{ color: '#9CA3AF', fontSize: 11 }}>(optional)</Text>
+                          )}
+                        </View>
+                        <SportMetricInput
+                          metric={metric}
+                          value={addMetricValues[metric.metricKey] ?? ''}
+                          onChange={(v) => setAddMetricValues((prev) => ({ ...prev, [metric.metricKey]: v }))}
+                          gradeScale={addGradeScales[metric.metricKey] ?? 'v'}
+                          onGradeScaleChange={(scale) => setAddGradeScales((prev) => ({ ...prev, [metric.metricKey]: scale }))}
+                          maxLevel={isAddingEloSport && metric.metricKey === 'self_reported_level' ? 4 : undefined}
+                          inputAccessoryViewID={Platform.OS === 'ios' ? 'sport-metric-done' : undefined}
+                        />
+                        {isAddingEloSport && metric.metricKey === 'self_reported_level' && (
+                          <Text style={{ color: '#9CA3AF', fontSize: 12, marginTop: 6 }}>
+                            Levels 5–10 unlock through match results
+                          </Text>
+                        )}
+                      </View>
+                    ))}
+                    {addSportMetrics.some((m) => !m.isRequired) && (
+                      <Text style={{ color: '#9CA3AF', fontSize: 12, textAlign: 'center', marginBottom: 4 }}>
+                        Optional fields can be filled later from your profile
+                      </Text>
+                    )}
+                  </>
+                )}
+              </ScrollView>
             )}
 
-            <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
               <Pressable
-                onPress={() => { setShowAddSport(false); setSelectedSportId(null); setSelectedLevel(5); setGradeInput(''); }}
+                onPress={() => { setShowAddSport(false); setSelectedSportId(null); setAddMetricValues({}); }}
                 style={{ flex: 1, backgroundColor: '#F2F3F7', borderRadius: 20, padding: 14, alignItems: 'center' }}
               >
                 <Text style={{ color: '#0D0D14', fontSize: 15, fontWeight: '600' }}>Cancel</Text>
               </Pressable>
               <Pressable
-                onPress={() => { if (selectedSportId) addSport(); }}
-                disabled={!selectedSportId || isAddingSport || availableToAdd.length === 0}
+                onPress={() => addSport()}
+                disabled={!selectedSportId || isAddingSport}
                 style={{
                   flex: 1,
-                  backgroundColor: (selectedSportId && !isAddingSport) ? '#6C47FF' : '#6C47FFAA',
+                  backgroundColor: (!selectedSportId || isAddingSport) ? '#6C47FFAA' : '#6C47FF',
                   borderRadius: 20, padding: 14, alignItems: 'center',
                 }}
               >
                 <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>
-                  {isAddingSport ? 'Adding…' : 'Add'}
+                  {isAddingSport ? 'Adding…' : 'Add Sport'}
                 </Text>
               </Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Edit Sport Modal ───────────────────────────────────────────────── */}
+      <Modal visible={!!editSportId} transparent animationType="slide" onRequestClose={() => setEditSportId(null)}>
+        <View style={{ flex: 1, backgroundColor: '#00000060', justifyContent: 'flex-end' }}>
+          {Platform.OS === 'ios' && (
+            <InputAccessoryView nativeID="sport-metric-done">
+              <View style={{ backgroundColor: '#F8F8F8', borderTopWidth: 0.5, borderTopColor: '#E0E0E0', padding: 8, alignItems: 'flex-end' }}>
+                <TouchableOpacity onPress={Keyboard.dismiss}>
+                  <Text style={{ color: '#007AFF', fontSize: 17, fontWeight: '600' }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </InputAccessoryView>
+          )}
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={{ flex: 1 }} />
+          </TouchableWithoutFeedback>
+          <View style={{ backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, maxHeight: '90%' }}>
+            {(() => {
+              const editingSport = profile?.sports.find((s) => s.sportId === editSportId);
+              const isElo = editingSport?.ratingType === 'ELO_COMPETITIVE';
+              const isMartialArts = editingSport?.sportSlug === 'martial_arts';
+              const hasActiveSportSession = editSportId ? activeSessionSportIds.has(editSportId) : false;
+              const gamesPlayedCount = editingSport?.gamesPlayed ?? 0;
+              const levelLockedByElo = isElo && gamesPlayedCount >= 1;
+              const levelLockedBySession = isElo && gamesPlayedCount === 0 && hasActiveSportSession;
+              const canEditLevel = isElo && !levelLockedByElo && !levelLockedBySession;
+              const visibleMetrics = editSportMetrics
+                .sort((a, b) => {
+                  if (isMartialArts) {
+                    const order: Record<string, number> = { discipline: 1, belt_or_level: 2 };
+                    return (order[a.metricKey] ?? 99) - (order[b.metricKey] ?? 99);
+                  }
+                  return 0;
+                });
+
+              return (
+                <>
+                  <Text style={{ color: '#0D0D14', fontSize: 18, fontWeight: '700', marginBottom: 16 }}>
+                    Edit {editingSport?.sportName ?? 'Sport'}
+                  </Text>
+
+                  <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ maxHeight: 400 }}>
+                    {isLoadingEditMetrics ? (
+                      <ActivityIndicator color="#6C47FF" style={{ marginVertical: 20 }} />
+                    ) : (
+                      <>
+                        {isElo && editingSport && editingSport.gamesPlayed > 0 && (
+                          <View style={{ backgroundColor: '#F8F9FC', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                              <EloBadge elo={editingSport.eloRating ?? 1000} />
+                              <Text style={{ color: '#6B7280', fontSize: 13, fontWeight: '600' }}>
+                                Level {editingSport.level ?? 1}
+                              </Text>
+                            </View>
+                            {editingSport.eloRating != null && editingSport.level != null ? (
+                              <Text style={{ color: '#6C47FF', fontSize: 12, fontWeight: '600' }}>
+                                {pointsToNextLevel(editingSport.level, editingSport.eloRating) ?? 'Max level reached!'}
+                              </Text>
+                            ) : null}
+                          </View>
+                        )}
+                        {levelLockedByElo && (
+                          <View style={{
+                            backgroundColor: '#FEF3C7', borderRadius: 12, padding: 12,
+                            marginBottom: 12, borderLeftWidth: 3, borderLeftColor: '#F59E0B',
+                          }}>
+                            <Text style={{ color: '#92400E', fontSize: 12, lineHeight: 17 }}>
+                              Your level is automatically calculated from your ELO rating after each match. It can no longer be edited manually.
+                            </Text>
+                          </View>
+                        )}
+                        {levelLockedBySession && (
+                          <View style={{
+                            backgroundColor: '#FEF3C7', borderRadius: 12, padding: 12,
+                            marginBottom: 12, borderLeftWidth: 3, borderLeftColor: '#F59E0B',
+                          }}>
+                            <Text style={{ color: '#92400E', fontSize: 12, lineHeight: 17 }}>
+                              Level editing is locked while you have an active game. It unlocks once your current session ends.
+                            </Text>
+                          </View>
+                        )}
+                        {visibleMetrics.map((metric) => {
+                          const isLevelMetric = isElo && metric.metricKey === 'self_reported_level';
+                          const isLocked = isLevelMetric && !canEditLevel;
+                          return (
+                            <View key={metric.metricKey} style={{ marginBottom: 20 }}>
+                              <Text style={{ color: '#9CA3AF', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
+                                {metric.label}
+                              </Text>
+                              <View pointerEvents={isLocked ? 'none' : 'auto'} style={{ opacity: isLocked ? 0.45 : 1 }}>
+                                <SportMetricInput
+                                  metric={metric}
+                                  value={editMetricValues[metric.metricKey] ?? ''}
+                                  onChange={(v) => setEditMetricValues((prev) => ({ ...prev, [metric.metricKey]: v }))}
+                                  gradeScale={editGradeScales[metric.metricKey] ?? 'v'}
+                                  onGradeScaleChange={(scale) => setEditGradeScales((prev) => ({ ...prev, [metric.metricKey]: scale }))}
+                                  maxLevel={isLevelMetric ? 4 : undefined}
+                                  inputAccessoryViewID={Platform.OS === 'ios' ? 'sport-metric-done' : undefined}
+                                />
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </>
+                    )}
+                  </ScrollView>
+
+                  <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+                    <Pressable
+                      onPress={() => setEditSportId(null)}
+                      style={{ flex: 1, backgroundColor: '#F2F3F7', borderRadius: 20, padding: 14, alignItems: 'center' }}
+                    >
+                      <Text style={{ color: '#0D0D14', fontSize: 15, fontWeight: '600' }}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => updateSport()}
+                      disabled={isUpdatingSport}
+                      style={{
+                        flex: 1,
+                        backgroundColor: isUpdatingSport ? '#6C47FFAA' : '#6C47FF',
+                        borderRadius: 20, padding: 14, alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>
+                        {isUpdatingSport ? 'Saving…' : 'Save Changes'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              );
+            })()}
           </View>
         </View>
       </Modal>

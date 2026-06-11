@@ -15,8 +15,10 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
+  Easing,
   Modal,
   PanResponder,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -28,7 +30,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { format } from 'date-fns';
 import type { PendingResult } from '../../types';
 
-const { height: SCREEN_H } = Dimensions.get('window');
+const { height: SCREEN_H, width: SCREEN_W } = Dimensions.get('window');
 const SHEET_H = Math.round(SCREEN_H * 0.8);
 
 const SPORT_COLOURS: Record<string, string> = {
@@ -63,9 +65,35 @@ function relativeDate(iso: string): string {
 
 function badgeFor(pt: PendingResult['pendingType']) {
   switch (pt) {
-    case 'NOT_REPORTED':      return { label: 'Report',   color: '#6C47FF', bg: '#EDE9FF' };
-    case 'REPORTED_BY_OTHER': return { label: 'Confirm',  color: '#D97706', bg: '#FEF3C7' };
-    default:                  return { label: 'Disputed', color: '#EF4444', bg: '#FEE2E2' };
+    case 'NOT_REPORTED':      return { label: 'Report',      color: '#6C47FF', bg: '#EDE9FF' };
+    case 'REPORTED_BY_OTHER': return { label: 'Confirm',     color: '#D97706', bg: '#FEF3C7' };
+    case 'COUNTER_PROPOSED':  return { label: 'Respond',     color: '#EF4444', bg: '#FEE2E2' };
+    case 'PB_UPDATE':          return { label: 'Log PBs',     color: '#FFFFFF',  bg: '#22C55E' };
+    case 'SESSION_LOG':        return { label: 'Log session', color: '#FFFFFF',  bg: '#3B82F6' };
+    case 'CANCELLED_SESSION':  return { label: 'Cancelled',   color: '#FFFFFF',  bg: '#EF4444' };
+    default:                   return { label: 'Disputed',    color: '#EF4444', bg: '#FEE2E2' };
+  }
+}
+
+function headlineFor(pt: PendingResult['pendingType'], sportName: string): { headline: string; subtitle: string } {
+  switch (pt) {
+    case 'PB_UPDATE':
+      return { headline: 'Did you set any new records?', subtitle: `Log your personal bests from your ${sportName} session` };
+    case 'SESSION_LOG':
+      return { headline: 'How was your session?', subtitle: `Let your ${sportName} group know how it went` };
+    case 'CANCELLED_SESSION':
+      return { headline: "Session didn't have enough players", subtitle: `Your ${sportName} session was cancelled — not enough people joined before it started` };
+    default:
+      return { headline: 'Time to report your result', subtitle: '' };
+  }
+}
+
+function ctaLabelFor(pt: PendingResult['pendingType']): string {
+  switch (pt) {
+    case 'PB_UPDATE':          return 'Update My PBs';
+    case 'SESSION_LOG':        return 'Log This Session';
+    case 'CANCELLED_SESSION':  return 'View Session';
+    default:                   return 'Go to game';
   }
 }
 
@@ -150,10 +178,12 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
   const { bottom: safeBottom } = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
   const [modalVisible, setModalVisible] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
 
   const translateY  = useRef(new Animated.Value(SHEET_H)).current;
   const backdropOpa = useRef(new Animated.Value(0)).current;
   const ctaScale    = useRef(new Animated.Value(1)).current;
+  const scrollX     = useRef(new Animated.Value(0)).current;
 
   // Keep onDismiss current inside PanResponder (created once via useRef)
   const onDismissRef = useRef(onDismiss);
@@ -163,17 +193,36 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
   useEffect(() => {
     if (visible) {
       setActiveIndex(0);
+      scrollX.setValue(0);
+      scrollRef.current?.scrollTo({ x: 0, animated: false });
       translateY.setValue(SHEET_H);
       backdropOpa.setValue(0);
       setModalVisible(true);
-      Animated.parallel([
-        Animated.spring(translateY,  { toValue: 0,   damping: 15, stiffness: 200, useNativeDriver: false }),
-        Animated.spring(backdropOpa, { toValue: 0.5, damping: 15, stiffness: 200, useNativeDriver: false }),
-      ]).start();
+      // Defer one frame so the modal finishes its layout pass before animating
+      requestAnimationFrame(() => {
+        Animated.parallel([
+          Animated.timing(translateY, {
+            toValue: 0,
+            duration: 340,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+          }),
+          Animated.timing(backdropOpa, {
+            toValue: 0.5,
+            duration: 240,
+            useNativeDriver: false,
+          }),
+        ]).start();
+      });
     } else {
       Animated.parallel([
-        Animated.spring(translateY,  { toValue: SHEET_H, damping: 15, stiffness: 200, useNativeDriver: false }),
-        Animated.timing(backdropOpa, { toValue: 0, duration: 250, useNativeDriver: false }),
+        Animated.timing(translateY, {
+          toValue: SHEET_H,
+          duration: 260,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: false,
+        }),
+        Animated.timing(backdropOpa, { toValue: 0, duration: 220, useNativeDriver: false }),
       ]).start(({ finished }) => {
         if (finished) setModalVisible(false);
       });
@@ -192,11 +241,21 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
       onPanResponderRelease: (_, { dy, vy }) => {
         if (dy > 80 || vy > 0.5) {
           Animated.parallel([
-            Animated.spring(translateY,  { toValue: SHEET_H, damping: 15, stiffness: 200, useNativeDriver: false }),
+            Animated.timing(translateY, {
+              toValue: SHEET_H,
+              duration: 260,
+              easing: Easing.in(Easing.cubic),
+              useNativeDriver: false,
+            }),
             Animated.timing(backdropOpa, { toValue: 0, duration: 200, useNativeDriver: false }),
           ]).start(() => onDismissRef.current());
         } else {
-          Animated.spring(translateY, { toValue: 0, damping: 15, stiffness: 200, useNativeDriver: false }).start();
+          Animated.timing(translateY, {
+            toValue: 0,
+            duration: 220,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: false,
+          }).start();
         }
       },
     })
@@ -212,8 +271,14 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
   const count  = Array.isArray(sessions) ? sessions.length : 0;
   const item   = count > 0 ? sessions[Math.min(activeIndex, count - 1)] : null;
   const colour = item ? sportColour(item.sportSlug) : '#6C47FF';
-  const badge  = item ? badgeFor(item.pendingType) : null;
-  const venue  = item?.locationName ?? null;
+
+  // DOT_STEP = dot diameter (6) + gap (8) = 14px
+  // Pill starts left:-7 so it centres on dot 0; translateX adds 14px per page.
+  const pillX = scrollX.interpolate({
+    inputRange: count > 1 ? sessions.map((_, i) => i * SCREEN_W) : [0, SCREEN_W],
+    outputRange: count > 1 ? sessions.map((_, i) => i * 14)      : [0, 14],
+    extrapolate: 'clamp',
+  });
 
   if (!modalVisible && count === 0) return null;
 
@@ -249,80 +314,112 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
           <View style={[styles.content, { paddingBottom: safeBottom > 0 ? safeBottom + 8 : 20 }]}>
 
             {/* Header — icon halo + headline */}
-            <View style={styles.headerSection}>
-              <View style={styles.iconHalo}>
-                <View style={styles.iconCircle}>
-                  <TrophyIcon size={32} color="#F59E0B" />
-                </View>
-              </View>
-              <Text style={styles.headline}>Time to report your result</Text>
-              <Text style={styles.subtitle}>
-                {count === 1 ? 'You have 1 game waiting' : `You have ${count} games waiting`}
-              </Text>
-            </View>
-
-            {/* Session summary card */}
-            {item && (
-              <View style={[styles.card, { borderLeftColor: colour }]}>
-                {/* Sport dot + name + pending badge */}
-                <View style={styles.cardHeader}>
-                  <View style={styles.sportRow}>
-                    <View style={[styles.sportDot, { backgroundColor: colour }]} />
-                    <Text style={[styles.sportLabel, { color: colour }]}>
-                      {item.sportName.toUpperCase()}
-                    </Text>
-                  </View>
-                  {badge && (
-                    <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-                      <Text style={[styles.badgeText, { color: badge.color }]}>{badge.label}</Text>
+            {(() => {
+              const { headline, subtitle: typeSubtitle } = item
+                ? headlineFor(item.pendingType, item.sportName)
+                : { headline: 'Time to report your result', subtitle: '' };
+              const countSubtitle = count === 1 ? 'You have 1 session waiting' : `You have ${count} sessions waiting`;
+              return (
+                <View style={styles.headerSection}>
+                  <View style={styles.iconHalo}>
+                    <View style={styles.iconCircle}>
+                      <TrophyIcon size={32} color="#F59E0B" />
                     </View>
-                  )}
-                </View>
-
-                {/* Session title */}
-                <Text style={styles.sessionTitle} numberOfLines={2}>
-                  {item.title ?? `${item.sportName} game`}
-                </Text>
-
-                {/* Player count */}
-                {item.participantCount != null && (
-                  <View style={styles.metaRow}>
-                    <UsersIcon size={13} color="#9CA3AF" />
-                    <Text style={styles.metaTextSmall}>
-                      {item.participantCount === 1 ? '1 player' : `${item.participantCount} players`}
-                    </Text>
                   </View>
-                )}
-
-                {/* Venue */}
-                {venue ? (
-                  <View style={styles.metaRow}>
-                    <MapPinIcon size={13} color="#9CA3AF" />
-                    <Text style={styles.metaText} numberOfLines={1}>{venue}</Text>
-                  </View>
-                ) : null}
-
-                {/* Date */}
-                <View style={styles.metaRow}>
-                  <ClockIcon size={13} color="#9CA3AF" />
-                  <Text style={styles.metaText} numberOfLines={1}>{relativeDate(item.scheduledAt)}</Text>
+                  <Text style={styles.headline}>{headline}</Text>
+                  <Text style={styles.subtitle}>
+                    {typeSubtitle || countSubtitle}
+                  </Text>
                 </View>
-              </View>
-            )}
+              );
+            })()}
 
-            {/* Pagination dots */}
+            {/* Swipeable card carousel — negative margin breaks out of content padding */}
+            <ScrollView
+              ref={scrollRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              scrollEventThrottle={16}
+              decelerationRate="fast"
+              bounces={false}
+              style={{ marginHorizontal: -24 }}
+              onScroll={(e) => scrollX.setValue(e.nativeEvent.contentOffset.x)}
+              onMomentumScrollEnd={(e) => {
+                const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
+                setActiveIndex(Math.max(0, Math.min(count - 1, idx)));
+              }}
+            >
+              {sessions.map((s) => {
+                const c = sportColour(s.sportSlug);
+                const b = badgeFor(s.pendingType);
+                return (
+                  <View key={s.sessionId} style={{ width: SCREEN_W, paddingHorizontal: 24 }}>
+                    <View style={[styles.card, { borderLeftColor: c }]}>
+                      <View style={styles.cardHeader}>
+                        <View style={styles.sportRow}>
+                          <View style={[styles.sportDot, { backgroundColor: c }]} />
+                          <Text style={[styles.sportLabel, { color: c }]}>
+                            {s.sportName.toUpperCase()}
+                          </Text>
+                        </View>
+                        {b && (
+                          <View style={[styles.badge, { backgroundColor: b.bg }]}>
+                            <Text style={[styles.badgeText, { color: b.color }]}>{b.label}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.sessionTitle} numberOfLines={2}>
+                        {s.title ?? `${s.sportName} game`}
+                      </Text>
+                      {s.participantCount != null && (
+                        <View style={styles.metaRow}>
+                          <UsersIcon size={13} color="#9CA3AF" />
+                          <Text style={styles.metaTextSmall}>
+                            {s.participantCount === 1 ? '1 player' : `${s.participantCount} players`}
+                          </Text>
+                        </View>
+                      )}
+                      {s.locationName ? (
+                        <View style={styles.metaRow}>
+                          <MapPinIcon size={13} color="#9CA3AF" />
+                          <Text style={styles.metaText} numberOfLines={1}>{s.locationName}</Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.metaRow}>
+                        <ClockIcon size={13} color="#9CA3AF" />
+                        <Text style={styles.metaText} numberOfLines={1}>{relativeDate(s.scheduledAt)}</Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            {/* Pagination — sliding pill tracks scroll 1-to-1 */}
             {count > 1 && (
               <View style={styles.dots}>
-                {sessions.map((_, i) => (
-                  <TouchableOpacity
-                    key={i}
-                    hitSlop={8}
-                    activeOpacity={0.7}
-                    onPress={() => setActiveIndex(i)}
-                  >
-                    <View style={[styles.dot, i === activeIndex ? styles.dotActive : styles.dotInactive]} />
-                  </TouchableOpacity>
-                ))}
+                {/* Tight inner wrapper so the absolute pill positions relative to the dots */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {sessions.map((_, i) => (
+                    <TouchableOpacity
+                      key={i}
+                      hitSlop={12}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        scrollRef.current?.scrollTo({ x: i * SCREEN_W, animated: true });
+                        setActiveIndex(i);
+                      }}
+                    >
+                      <View style={styles.dotBg} />
+                    </TouchableOpacity>
+                  ))}
+                  {/* Pill: left:-7 centres it on the first 6px dot; translateX slides 14px per page */}
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.dotPill, { transform: [{ translateX: pillX }] }]}
+                  />
+                </View>
               </View>
             )}
 
@@ -334,7 +431,7 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
               onPress={() => item && onNavigate(item.sessionId)}
             >
               <Animated.View style={[styles.ctaButton, { transform: [{ scale: ctaScale }] }]}>
-                <Text style={styles.ctaText}>Go to game</Text>
+                <Text style={styles.ctaText}>{item ? ctaLabelFor(item.pendingType) : 'Go to game'}</Text>
               </Animated.View>
             </TouchableOpacity>
 
@@ -490,22 +587,23 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   dots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
     marginBottom: 20,
   },
-  dot: {
+  dotBg: {
     width: 6,
     height: 6,
     borderRadius: 3,
-  },
-  dotActive: {
-    backgroundColor: '#6C47FF',
-  },
-  dotInactive: {
     backgroundColor: '#D1D5DB',
+  },
+  dotPill: {
+    position: 'absolute',
+    left: -7,
+    width: 20,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#6C47FF',
   },
   ctaButton: {
     backgroundColor: '#6C47FF',

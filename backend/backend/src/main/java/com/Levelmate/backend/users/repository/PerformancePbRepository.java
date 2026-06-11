@@ -12,4 +12,8 @@ public interface PerformancePbRepository extends JpaRepository<PerformancePb, UU
     List<PerformancePb> findAllByUserIdAndSportIdOrderByDistanceMetersAsc(UUID userId, UUID sportId);
 
     Optional<PerformancePb> findByUserIdAndSportIdAndDistanceMeters(UUID userId, UUID sportId, int distanceMeters);
+
+    List<PerformancePb> findAllByUserIdAndMetricKeyIsNotNull(UUID userId);
+
+    Optional<PerformancePb> findByUserIdAndSportIdAndMetricKey(UUID userId, UUID sportId, String metricKey);
 }

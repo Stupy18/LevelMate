@@ -1,10 +1,8 @@
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import DateTimePickerModal from '../../components/ui/DateTimePickerModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ConflictModal from '../../components/modals/ConflictModal';
 import LocationPicker, { type SelectedLocation } from '../../components/location/LocationPicker';
@@ -68,22 +67,52 @@ export default function CreateScreen() {
     queryKey: ['user-sports', user?.id],
     queryFn: async () => {
       const { data } = await api.get(`/api/v1/users/${user!.id}/sports`);
-      return data as { userSportId: string; sportId: string; sportName: string }[];
+      return data as { userSportId: string; sportId: string; sportName: string; ratingType: string; level: number | null }[];
     },
     enabled: !!user?.id,
   });
 
   const [sportId, setSportId] = useState<string | null>(null);
+
+  const selectedUserSport = userSports.find((s) => s.sportId === sportId);
+  const isEloSport = selectedUserSport?.ratingType === 'ELO_COMPETITIVE';
+  const isGradeSport = selectedUserSport?.ratingType === 'GRADE_BASED';
+  const isPerformanceSport = selectedUserSport?.ratingType === 'PERFORMANCE_BASED';
+  const hostLevel = selectedUserSport?.level ?? null;
+  const maxLevelCap = isEloSport && hostLevel != null ? hostLevel + 3 : 10;
+
+  const { data: sportMetrics = [] } = useQuery({
+    queryKey: ['sport-metrics', sportId],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/v1/sports/${sportId}/metrics`);
+      return data as { id: string; metricKey: string; label: string; inputType: string; unit?: string | null }[];
+    },
+    enabled: !!sportId && isGradeSport,
+  });
+
+  const gradeMetric = sportMetrics.find(m => m.inputType === 'grade_v' || m.inputType === 'grade_french_sport');
+  const gradeScale: string[] = gradeMetric?.inputType === 'grade_v'
+    ? ['VB', 'V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9', 'V10', 'V11', 'V12', 'V13', 'V14', 'V15', 'V16', 'V17']
+    : gradeMetric?.inputType === 'grade_french_sport'
+    ? ['5a', '5b', '5c', '6a', '6a+', '6b', '6b+', '6c', '6c+', '7a', '7a+', '7b', '7b+', '7c', '7c+', '8a', '8a+', '8b', '8b+', '8c', '8c+', '9a']
+    : [];
+
+  useEffect(() => {
+    if (maxLevel > maxLevelCap) setMaxLevel(maxLevelCap);
+  }, [sportId, maxLevelCap]);
   const [title, setTitle] = useState('');
   const [date, setDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [minPlayers, setMinPlayers] = useState(2);
   const [maxPlayers, setMaxPlayers] = useState(10);
+  const [teamSize, setTeamSize] = useState(3);
   const [levelRangeEnabled, setLevelRangeEnabled] = useState(false);
   const [minLevel, setMinLevel] = useState(1);
   const [maxLevel, setMaxLevel] = useState(10);
+  const [gradeMin, setGradeMin] = useState<string | null>(null);
+  const [gradeMax, setGradeMax] = useState<string | null>(null);
+  const [targetPace, setTargetPace] = useState('');
   const [location, setLocation] = useState<SelectedLocation | null>(null);
   const [description, setDescription] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
@@ -129,8 +158,8 @@ export default function CreateScreen() {
       sportId,
       scheduledAt: date!.toISOString(),
       durationMinutes,
-      minPlayers,
-      maxPlayers,
+      minPlayers: isEloSport ? 2 : minPlayers,
+      maxPlayers: isEloSport ? teamSize * 2 : maxPlayers,
       locationName: location!.locationName,
       locationAddress: location!.locationAddress,
       locationLat: location!.locationLat,
@@ -139,8 +168,13 @@ export default function CreateScreen() {
       googlePhotoReference: location!.googlePhotoReference,
     };
     if (title.trim()) payload.title = title.trim();
-    if (levelRangeEnabled) { payload.minLevel = minLevel; payload.maxLevel = maxLevel; }
     if (description.trim()) payload.description = description.trim();
+    if (isEloSport && levelRangeEnabled) { payload.minLevel = minLevel; payload.maxLevel = maxLevel; }
+    if (isGradeSport) {
+      if (gradeMin) payload.gradeMin = gradeMin;
+      if (gradeMax) payload.gradeMax = gradeMax;
+    }
+    if (isPerformanceSport && targetPace.trim()) payload.targetPace = targetPace.trim();
     createSession(payload);
   }
 
@@ -189,43 +223,13 @@ export default function CreateScreen() {
           {/* Date & Time */}
           <FormField label="Date & Time *" error={errors.date}>
             <Pressable
-              onPress={() => { setPickerMode('date'); setShowDatePicker(true); }}
+              onPress={() => setShowDatePicker(true)}
               style={{ ...inputStyle, borderColor: errors.date ? '#EF4444' : '#E5E7EB' }}
             >
               <Text style={{ color: date ? '#0D0D14' : '#9CA3AF', fontSize: 15 }}>
                 {date ? formatSessionDate(date.toISOString()) : 'Select date and time'}
               </Text>
             </Pressable>
-            {showDatePicker && (
-              <DateTimePicker
-                value={date ?? new Date(Date.now() + 3600000)}
-                mode={Platform.OS === 'ios' ? 'datetime' : pickerMode}
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                minimumDate={pickerMode === 'date' ? new Date() : undefined}
-                onChange={(event, selected) => {
-                  if (Platform.OS === 'android') {
-                    setShowDatePicker(false);
-                    if (event.type === 'set' && selected) {
-                      if (pickerMode === 'date') {
-                        setDate(selected);
-                        setPickerMode('time');
-                        setShowDatePicker(true);
-                      } else {
-                        setDate((prev) => {
-                          const base = prev ?? selected;
-                          const combined = new Date(base);
-                          combined.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
-                          return combined;
-                        });
-                      }
-                    }
-                  } else {
-                    setShowDatePicker(false);
-                    if (selected) setDate(selected);
-                  }
-                }}
-              />
-            )}
           </FormField>
 
           {/* Duration */}
@@ -236,48 +240,147 @@ export default function CreateScreen() {
             </View>
           </FormField>
 
-          {/* Players */}
-          <FormField label="Players *">
-            <View style={{ flexDirection: 'row', gap: 24 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>Min</Text>
-                <Stepper value={minPlayers} onChange={(v) => setMinPlayers(Math.min(v, maxPlayers))} min={2} max={30} />
-                {errors.minPlayers ? <Text style={{ color: '#EF4444', fontSize: 11, marginTop: 4 }}>{errors.minPlayers}</Text> : null}
+          {/* Players / Team Size */}
+          {isEloSport ? (
+            <FormField label="Team Size">
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: '#0D0D14', fontSize: 15 }}>
+                  {teamSize} vs {teamSize} · {teamSize * 2} players
+                </Text>
+                <Stepper value={teamSize} onChange={setTeamSize} min={1} max={15} />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>Max</Text>
-                <Stepper value={maxPlayers} onChange={(v) => setMaxPlayers(Math.max(v, minPlayers))} min={2} max={30} />
-                {errors.maxPlayers ? <Text style={{ color: '#EF4444', fontSize: 11, marginTop: 4 }}>{errors.maxPlayers}</Text> : null}
-              </View>
-            </View>
-          </FormField>
-
-          {/* Skill Level Range */}
-          <FormField label="Skill Level">
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: levelRangeEnabled ? 12 : 0 }}>
-              <Text style={{ color: levelRangeEnabled ? '#0D0D14' : '#6B7280', fontSize: 15 }}>
-                {levelRangeEnabled ? `Level ${minLevel}–${maxLevel}` : 'Any level'}
-              </Text>
-              <Pressable
-                onPress={() => setLevelRangeEnabled((v) => !v)}
-                style={{ backgroundColor: levelRangeEnabled ? '#EDE9FF' : '#F2F3F7', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 }}
-              >
-                <Text style={{ color: levelRangeEnabled ? '#6C47FF' : '#6B7280', fontSize: 13, fontWeight: '600' }}>{levelRangeEnabled ? 'On' : 'Off'}</Text>
-              </Pressable>
-            </View>
-            {levelRangeEnabled && (
+            </FormField>
+          ) : (
+            <FormField label="Players *">
               <View style={{ flexDirection: 'row', gap: 24 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>Min Level</Text>
-                  <Stepper value={minLevel} onChange={(v) => setMinLevel(Math.min(v, maxLevel))} min={1} max={10} />
+                  <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>Min</Text>
+                  <Stepper value={minPlayers} onChange={(v) => setMinPlayers(Math.min(v, maxPlayers))} min={2} max={30} />
+                  {errors.minPlayers ? <Text style={{ color: '#EF4444', fontSize: 11, marginTop: 4 }}>{errors.minPlayers}</Text> : null}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>Max Level</Text>
-                  <Stepper value={maxLevel} onChange={(v) => setMaxLevel(Math.max(v, minLevel))} min={1} max={10} />
+                  <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>Max</Text>
+                  <Stepper value={maxPlayers} onChange={(v) => setMaxPlayers(Math.max(v, minPlayers))} min={2} max={30} />
+                  {errors.maxPlayers ? <Text style={{ color: '#EF4444', fontSize: 11, marginTop: 4 }}>{errors.maxPlayers}</Text> : null}
                 </View>
               </View>
-            )}
-          </FormField>
+            </FormField>
+          )}
+
+          {/* ELO: Skill Level Range */}
+          {isEloSport && (
+            <FormField label="Skill Level">
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: levelRangeEnabled ? 12 : 0 }}>
+                <Text style={{ color: levelRangeEnabled ? '#0D0D14' : '#6B7280', fontSize: 15 }}>
+                  {levelRangeEnabled ? `Level ${minLevel}–${maxLevel}` : 'Any level'}
+                </Text>
+                <Pressable
+                  onPress={() => setLevelRangeEnabled((v) => !v)}
+                  style={{ backgroundColor: levelRangeEnabled ? '#EDE9FF' : '#F2F3F7', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 }}
+                >
+                  <Text style={{ color: levelRangeEnabled ? '#6C47FF' : '#6B7280', fontSize: 13, fontWeight: '600' }}>{levelRangeEnabled ? 'On' : 'Off'}</Text>
+                </Pressable>
+              </View>
+              {levelRangeEnabled && (
+                <View style={{ flexDirection: 'row', gap: 24 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>Min Level</Text>
+                    <Stepper value={minLevel} onChange={(v) => setMinLevel(Math.min(v, maxLevel))} min={1} max={10} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>Max Level</Text>
+                    <Stepper
+                      value={Math.min(maxLevel, maxLevelCap)}
+                      onChange={(v) => setMaxLevel(Math.min(Math.max(v, minLevel), maxLevelCap))}
+                      min={1}
+                      max={maxLevelCap}
+                    />
+                    {hostLevel != null && (
+                      <Text style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>
+                        Max: your level + 3 ({hostLevel} + 3 = {maxLevelCap})
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              )}
+            </FormField>
+          )}
+
+          {/* GRADE_BASED: Grade Range */}
+          {isGradeSport && (
+            <FormField label="Grade Range">
+              {gradeScale.length > 0 ? (
+                <View style={{ gap: 12 }}>
+                  <View>
+                    <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 8 }}>Min Grade</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {gradeScale.map(g => (
+                        <Pressable
+                          key={g}
+                          onPress={() => setGradeMin(g === gradeMin ? null : g)}
+                          style={{
+                            marginRight: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+                            backgroundColor: gradeMin === g ? '#6C47FF' : '#F2F3F7',
+                            borderWidth: 1, borderColor: gradeMin === g ? '#6C47FF' : '#E5E7EB',
+                          }}
+                        >
+                          <Text style={{ color: gradeMin === g ? '#FFFFFF' : '#0D0D14', fontSize: 13, fontWeight: '600' }}>{g}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  <View>
+                    <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 8 }}>Max Grade</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {gradeScale.map(g => (
+                        <Pressable
+                          key={g}
+                          onPress={() => setGradeMax(g === gradeMax ? null : g)}
+                          style={{
+                            marginRight: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+                            backgroundColor: gradeMax === g ? '#6C47FF' : '#F2F3F7',
+                            borderWidth: 1, borderColor: gradeMax === g ? '#6C47FF' : '#E5E7EB',
+                          }}
+                        >
+                          <Text style={{ color: gradeMax === g ? '#FFFFFF' : '#0D0D14', fontSize: 13, fontWeight: '600' }}>{g}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  {(gradeMin || gradeMax) && (
+                    <Text style={{ color: '#6B7280', fontSize: 13 }}>
+                      {gradeMin && gradeMax ? `${gradeMin} – ${gradeMax}` : gradeMin ? `${gradeMin} and above` : `Up to ${gradeMax}`}
+                    </Text>
+                  )}
+                </View>
+              ) : (
+                <Text style={{ color: '#9CA3AF', fontSize: 13 }}>Any grade welcome</Text>
+              )}
+              <View style={{ marginTop: 10 }}>
+                <View style={{ backgroundColor: '#EDE9FF', borderRadius: 20, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4 }}>
+                  <Text style={{ color: '#6C47FF', fontSize: 12, fontWeight: '600' }}>Group Session</Text>
+                </View>
+              </View>
+            </FormField>
+          )}
+
+          {/* PERFORMANCE_BASED: Target Pace */}
+          {isPerformanceSport && (
+            <FormField label="Target Pace">
+              <TextInput
+                style={inputStyle}
+                placeholder="e.g. 5:30/km, sub-20min 5K, 100kg squat"
+                placeholderTextColor="#9CA3AF"
+                value={targetPace}
+                onChangeText={setTargetPace}
+              />
+              <View style={{ marginTop: 8 }}>
+                <View style={{ backgroundColor: '#EDE9FF', borderRadius: 20, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4 }}>
+                  <Text style={{ color: '#6C47FF', fontSize: 12, fontWeight: '600' }}>Group Training</Text>
+                </View>
+              </View>
+            </FormField>
+          )}
 
           {/* Location */}
           <FormField label="Location *" error={errors.location} containerStyle={{ zIndex: 999 }}>
@@ -313,6 +416,14 @@ export default function CreateScreen() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <DateTimePickerModal
+        visible={showDatePicker}
+        value={date}
+        minimumDate={new Date()}
+        onChange={(d) => setDate(d)}
+        onClose={() => setShowDatePicker(false)}
+      />
 
       <ConflictModal
         visible={conflictingSession !== null}
