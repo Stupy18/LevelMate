@@ -14,7 +14,7 @@ LevelMate mobile app — Expo/React Native client for the LevelMate backend. Ath
 **Backend**: Spring Boot API at `http://localhost:8080` (dev). Set `EXPO_PUBLIC_API_URL` in `.env`.
 
 **Stack**
-- Expo SDK 55, React Native 0.83.6, React 19.2.0
+- Expo SDK 57, React Native 0.86.2, React 19.2.3 (upgraded from SDK 55 — see "expo-sdk-57-upgrade" below)
 - Expo Router v4 (file-based routing)
 - NativeWind v4 (Tailwind CSS for RN)
 - TanStack Query v5
@@ -22,6 +22,8 @@ LevelMate mobile app — Expo/React Native client for the LevelMate backend. Ath
 - Axios with JWT interceptors
 - expo-secure-store (token storage)
 - expo-location
+- expo-haptics (tactile feedback — always via `lib/haptics.ts`, never imported directly)
+- react-native-reanimated v4 + react-native-worklets (required separate peer dep since Reanimated v4)
 - @react-native-community/datetimepicker v8.6.0
 - date-fns
 
@@ -45,6 +47,10 @@ LevelMate mobile app — Expo/React Native client for the LevelMate backend. Ath
 - Modal + close animation: use internal `modalVisible` state (stays true until spring finishes) to prevent Modal unmounting before animation completes
 - Avatar: stored as base64 string in `avatar_data TEXT` column. Frontend sends/receives as `data:image/jpeg;base64,...` or raw base64; `Avatar` component handles both
 - Dockerfile.dev: must `COPY scripts/ ./scripts/` BEFORE `RUN npm install` so the postinstall script exists when npm runs it
+- **Dockerfile.dev has NO bind-mount volume** — `COPY . .` happens once at image build time, so plain `docker compose up` reuses whatever was baked into the last built image. Any code change (including a new dependency in package.json) requires `docker compose up --build` to actually reach a device via Expo Go — this cost real debugging time when haptics silently "didn't work" because the container was stale.
+- `EXPO_TOKEN` (root `.env`, generate at expo.dev/settings/access-tokens) authenticates the Expo CLI non-interactively inside Docker — required so Metro doesn't hang on the interactive "Log in / Proceed anonymously" prompt, and so Expo Go doesn't show manifest-signing warnings when it's signed into an account. Passed through in `compose.yaml`'s `expo` service environment.
+- `StyleSheet.absoluteFillObject` was removed as of this RN version (SDK 57 / RN 0.86) — use `StyleSheet.absoluteFill` instead.
+- Haptics only fire on a physical device via Expo Go — both the iOS Simulator and Android Emulator are no-ops (no vibration hardware). Also check the phone's system haptics: iOS Settings → Sounds & Haptics → System Haptics, and Low Power Mode disables/reduces them.
 
 ---
 
@@ -296,8 +302,12 @@ CLI commands must be run from that directory.
 docker compose up --build
 
 # Physical device — pass your machine's LAN IP so Expo Go can reach Metro:
-HOST_IP=192.168.x.x docker compose up
+HOST_IP=192.168.x.x docker compose up --build
 ```
+There is no bind-mount volume — `--build` is required every time source or `package.json`
+changes, or the container just re-runs the last built image (see gotcha above). Optionally
+set `EXPO_TOKEN` in the root `.env` (see `.env.example`) so the Expo CLI authenticates
+non-interactively instead of showing manifest-signing warnings.
 
 **Option B — run Expo locally, backend in Docker:**
 ```bash
@@ -441,6 +451,114 @@ types/index.ts                             ← pbUpdateSubmitted/sessionAcknowle
 - PB pre-fill: two-effect approach — one on `showPbSheet` change, one on `pbValuesKey` (JSON-serialized PB values) change
 - Level lock: `levelLockedByElo = isElo && gamesPlayed >= 1`; `levelLockedBySession = isElo && gamesPlayed === 0 && hasActiveSportSession`; distinct warning messages for each case
 - InputAccessoryView IDs: `'duration-input-toolbar'` (DurationInput), `'pb-number-done'` (PB sheet), `'sport-metric-done-toolbar'` (SportMetricInput non-duration)
+
+---
+
+### expo-sdk-57-upgrade — DONE
+
+**What was built:**
+- Upgraded Expo SDK 55 → 57 (via 56) to match the Expo Go app version, following Expo's official upgrade walkthrough — RN 0.83.6 → 0.86.2, React 19.2.0 → 19.2.3, `react-native-reanimated` 3 → 4 (pulled in `react-native-worklets` as a new required peer dep), TypeScript 5.9.2 → 6.0.3
+- `expo-splash-screen` migrated from the deprecated top-level `app.json` `splash` key to a proper plugin entry
+- Fixed all resulting compile errors: `StyleSheet.absoluteFillObject` → `absoluteFill`, `global.css` needs `declare module '*.css'` in `nativewind-env.d.ts`, `Notifications.setNotificationHandler` needs `shouldShowBanner`/`shouldShowList`, `useRef<T>()` no-arg overload removed (must pass `undefined` explicitly), TS6's function-boundary narrowing loss on `session` inside nested functions in `session/[id].tsx` (fixed with a local `const s = session!;` alias)
+
+**Key notes:**
+- Production EAS builds are independent of what Expo Go supports — they bundle whatever SDK version is in `package.json`. The upgrade was only needed because Expo Go (dev testing) had moved to SDK 57 and could no longer open an SDK 55 project.
+- `expo-doctor` flagged a known Hermes memory regression on `expo@56.0.20` and recommended jumping straight to `expo@^57.0.9` — did that rather than stopping at 56.
+- On Windows, in-place `npm install expo@^X` upgrades hit `EBUSY` file-lock errors renaming `node_modules/expo-modules-autolinking`; a clean `rm -rf node_modules && npm install --legacy-peer-deps` avoided this every time.
+
+---
+
+### visual-depth-pass — DONE
+
+**What was built:**
+- `lib/theme.ts` — shared design tokens: `screenGradient` (`#F4F5FA` → `#EEF0F6`), `textColors`, `cardStyle` (16px radius, `0,2/0.06/8/elev 3` shadow), `inputStyle` (12px radius, `0,1/0.04/3/elev 1` shadow), `inputFocusedStyle` (purple border + stronger shadow)
+- `components/ui/ScreenBackground.tsx` — wraps a screen in the subtle gradient via `expo-linear-gradient`; every screen's `SafeAreaView` background became `transparent` and got wrapped in this
+- Applied across Discover, My Games, Create, Profile, Session Detail (+ its Review Teams modal), Login, Register, Onboarding, Public User Profile
+- Every text input elevated to white + subtle shadow + real purple focus state (via `onFocus`/`onBlur`, not just "has a value"): Login/Register fields, Profile display-name, Create's title/target-pace/description, `LocationPicker`'s search field, `SportMetricInput`'s number/text fallback, `DurationInput`, Session Detail's score-report and PB-update inputs
+- Every card unified to the same shadow/radius: Profile's sport/coach cards, public-profile cards, Session Detail's result-status info panels
+
+**Key files:**
+```
+lib/theme.ts
+components/ui/ScreenBackground.tsx
+```
+
+**Key notes:**
+- `SessionCard.tsx`'s photo-card shadow was already correct (intentionally slightly stronger for an image card) — left untouched.
+- Admin tab kept its existing dark theme — out of scope, never asked for.
+
+---
+
+### haptics-feedback — DONE
+
+**What was built:**
+- Installed `expo-haptics`; `lib/haptics.ts` exposes `hapticLight`/`hapticMedium`/`hapticSuccess`/`hapticWarning`/`hapticError` — **all haptic calls must go through these, never import `expo-haptics` directly in a component**
+- **Light**: `SportChip` selection (covers Discover filters + "My Level" toggle, Create's sport picker, Profile's Add Sport picker), `SportMetricInput`'s level-dot/grade pickers, Create's grade-range chips, `SportSearchPicker` row taps
+- **Medium**: `SessionCard` tap (covers Discover + My Games), `PendingResultSheet`'s "Go to game" CTA, `session/[id].tsx`'s `rebalanceMovePlayer`, Create's submit-button tap
+- **Success**: join/leave/report/confirm/accept-counter/PB-submit mutations in `session/[id].tsx`, `createSession` in `create.tsx`, `addSport`/`updateProfile` in `profile.tsx`, register on success
+- **Error**: login invalid-credentials, register/create client-side validation failure, `joinGame`/`createSession` `onError` (non-time-conflict branch)
+- **Warning**: time-conflict branches of `joinGame`/`createSession` `onError`, the various "teams need at least one player" alerts and the dispute "Send for Review?" confirmation in `session/[id].tsx`, `updateSport`'s `LEVEL_LOCKED_ACTIVE_SESSION` error in `profile.tsx`
+
+**Key files:**
+```
+lib/haptics.ts
+```
+
+**Key notes:**
+- Haptics only fire on a physical device via Expo Go — no-op on simulators/emulators (see gotcha above).
+- Deliberately skipped the bottom tab bar (`tabBarButton` override risks touching navigation internals) and several mutations not explicitly warranting feedback (`disputeResult`, `rejectEscalate`, `cancelSession`, etc.) — restraint over completeness.
+
+---
+
+### sports-catalog-expansion (mobile) — DONE
+
+**What was built:**
+- `lib/sportColors.ts` extended with colours for the ~20 new sports added in the backend's `V29` migration (see `backend/CLAUDE.md`)
+- `components/sports/SportSearchPicker.tsx` (new) — search input (elevated style, purple focus) + vertical list grouped by rating type (Competitive / Grade-Based / Performance-Based headers, alphabetical within group), "No sports found" empty state, `hapticLight` on row tap. The list area uses a **fixed `height` (not `maxHeight`)** on its inner `ScrollView` so it doesn't shrink and hide behind the keyboard when a search narrows results down.
+- Replaces the horizontal `SportChip` scroller in `profile.tsx`'s Add Sport modal — picking a sport collapses the picker to a compact "selected sport + Change" row, then shows the metric form
+- `onboarding/sports.tsx` keeps its multi-select + inline level-stepper/grade-input behaviour, but the 2-column card grid became a single-column grouped list with the same search bar, checkmarks on selected rows, and a proper `InputAccessoryView` Done button
+
+**Key files:**
+```
+components/sports/SportSearchPicker.tsx
+lib/sportColors.ts
+app/(tabs)/profile.tsx
+app/onboarding/sports.tsx
+```
+
+---
+
+### discover-header-crossfade — DONE
+
+**What was built:**
+- Fixed the Discover screen's title/subtitle/filter-chip block shifting when the skeleton swapped to the loaded list: it used to render in two structurally different containers (a plain `View` while loading vs. `FlatList`'s `ListHeaderComponent` once loaded). Now it renders exactly once, always mounted, above a separate content area.
+- Added a skeleton↔content crossfade: a `contentOpacity` `Animated.Value` fades 0→1 over 250ms (`useNativeDriver: true`) once `showSkeleton` flips false; the skeleton layer uses the inverse interpolation and stays mounted only until the fade finishes (so its shimmer loop doesn't run forever or cut off mid-fade).
+
+**Key files:**
+```
+app/(tabs)/discover.tsx
+```
+
+**Key notes:**
+- `useMinLoadingTime` (min 700ms skeleton) is unchanged — the fade only starts once it genuinely flips `showSkeleton` false, so no flicker.
+- The empty state (`ListEmptyComponent`) is inside the same `FlatList` that's wrapped in the fading `Animated.View`, so it inherits the crossfade automatically.
+
+---
+
+### pending-result-sheet-sync-fix — DONE (bug fixes to `pending-result-sheet` / `post-session-reminders`)
+
+**What was fixed:**
+- Root cause of "PB update / session ack doesn't clear the reminder": `markPbSubmitted` and `savePbResults` in `session/[id].tsx` were missing `invalidateQueries({ queryKey: ['pending-results'] })` entirely (the ELO paths already had it).
+- Added a shared `removeFromPendingResults()` (via `onMutate`, optimistic `setQueryData` filter) across every resolving mutation — report/confirm/dispute/reject-escalate/accept-counter/PB-submit/acknowledge — so the sheet/banner updates instantly instead of waiting on the next 60s poll.
+- `_layout.tsx` force-closes the sheet if it's open with zero pending items left (covers the case where the last item is resolved from inside the session detail screen while the sheet happens to be open).
+- Perf: `PendingResultSheet`'s `translateY`/`backdropOpa`/`ctaScale` animations switched from `useNativeDriver: false` to `true`; the component is wrapped in `React.memo` with a content-aware comparator so the 60s `pending-results` poll doesn't force pointless re-renders.
+
+**Key files:**
+```
+app/session/[id].tsx
+app/_layout.tsx
+components/modals/PendingResultSheet.tsx
+```
 
 ---
 

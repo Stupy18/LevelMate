@@ -42,6 +42,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
 import { formatDuration, formatSessionDate } from '../../lib/format';
+import { hapticError, hapticMedium, hapticSuccess, hapticWarning } from '../../lib/haptics';
 import { useAuthStore } from '../../stores/authStore';
 import type { ConflictingSession, GameParticipant, GameResult, GameSession, PendingResult } from '../../types';
 
@@ -136,20 +137,22 @@ export default function SessionDetailScreen() {
 
   const { mutate: joinGame, isPending: isJoining } = useMutation({
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/join`),
-    onSuccess: invalidate,
+    onSuccess: () => { hapticSuccess(); invalidate(); },
     onError: (err: any) => {
       const errorCode = err?.response?.data?.errorCode;
       if (errorCode === 'TIME_CONFLICT') {
+        hapticWarning();
         setConflictingSession(err.response.data.conflictingSession);
         return;
       }
+      hapticError();
       Alert.alert('Cannot Join', err?.response?.data?.message ?? 'Failed to join.');
     },
   });
 
   const { mutate: leaveGame, isPending: isLeaving } = useMutation({
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/leave`),
-    onSuccess: invalidate,
+    onSuccess: () => { hapticSuccess(); invalidate(); },
     onError: (err: any) => Alert.alert('Cannot Leave', err?.response?.data?.message ?? 'Failed to leave.'),
   });
 
@@ -177,6 +180,7 @@ export default function SessionDetailScreen() {
       api.post(`/api/v1/game-sessions/${id}/result`, { winnerTeam, scoreTeamA, scoreTeamB }),
     onMutate: removeFromPendingResults,
     onSuccess: () => {
+      hapticSuccess();
       setResultSubmittedLocally(true);
       setShowResultModal(false);
       setScoreA('');
@@ -185,19 +189,20 @@ export default function SessionDetailScreen() {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['pending-results'] });
     },
-    onError: (err: any) => Alert.alert('Error', err?.response?.data?.message ?? 'Failed to report result.'),
+    onError: (err: any) => { hapticError(); Alert.alert('Error', err?.response?.data?.message ?? 'Failed to report result.'); },
   });
 
   const { mutate: confirmResult, isPending: isConfirming } = useMutation({
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/result/confirm`),
     onMutate: removeFromPendingResults,
     onSuccess: () => {
+      hapticSuccess();
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['pending-results'] });
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       queryClient.invalidateQueries({ queryKey: ['elo-history'] });
     },
-    onError: (err: any) => Alert.alert('Error', err?.response?.data?.message ?? 'Failed to confirm.'),
+    onError: (err: any) => { hapticError(); Alert.alert('Error', err?.response?.data?.message ?? 'Failed to confirm.'); },
   });
 
   const { mutate: disputeResult, isPending: isDisputing } = useMutation({
@@ -234,6 +239,7 @@ export default function SessionDetailScreen() {
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/result/accept-counter`),
     onMutate: removeFromPendingResults,
     onSuccess: () => {
+      hapticSuccess();
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['pending-results'] });
       queryClient.invalidateQueries({ queryKey: ['profile'] });
@@ -290,6 +296,7 @@ export default function SessionDetailScreen() {
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/pb-submitted`),
     onMutate: removeFromPendingResults,
     onSuccess: () => {
+      hapticSuccess();
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['pending-results'] });
       setShowPbSheet(false);
@@ -309,6 +316,7 @@ export default function SessionDetailScreen() {
     },
     onMutate: removeFromPendingResults,
     onSuccess: () => {
+      hapticSuccess();
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['pending-results'] });
       queryClient.invalidateQueries({ queryKey: ['profile'] });
@@ -410,6 +418,7 @@ export default function SessionDetailScreen() {
         setIsAutoAssigning(false);
       }
     } else if (teamA.length === 0 || teamB.length === 0) {
+      hapticWarning();
       Alert.alert('Teams Needed', 'Both teams must have at least one player. Assign players to teams before reporting a result.');
       return;
     }
@@ -434,10 +443,13 @@ export default function SessionDetailScreen() {
     const teamA = participants.filter(p => p.team === 'TEAM_A');
     const teamB = participants.filter(p => p.team === 'TEAM_B');
     if (teamA.length === 0 || teamB.length === 0) {
-      setTimeout(() => Alert.alert(
-        'Unbalanced Teams',
-        'Teams are currently unbalanced. Move at least one player to each team before confirming.'
-      ), 300);
+      setTimeout(() => {
+        hapticWarning();
+        Alert.alert(
+          'Unbalanced Teams',
+          'Teams are currently unbalanced. Move at least one player to each team before confirming.'
+        );
+      }, 300);
     }
   }
 
@@ -449,10 +461,12 @@ export default function SessionDetailScreen() {
       if (fromTeam === 'TEAM_A' || fromTeam === 'TEAM_B') {
         const sameTeam = prev.filter(p => p.team === fromTeam);
         if (sameTeam.length === 1) {
+          hapticWarning();
           Alert.alert('Cannot Move', `At least one player must remain on ${fromTeam === 'TEAM_A' ? 'Team A' : 'Team B'}.`);
           return prev;
         }
       }
+      hapticMedium();
       return prev.map(p => p.userId === userId ? { ...p, team: toTeam } : p);
     });
   }
@@ -461,6 +475,7 @@ export default function SessionDetailScreen() {
     const rTeamA = rebalanceParticipants.filter(p => p.team === 'TEAM_A');
     const rTeamB = rebalanceParticipants.filter(p => p.team === 'TEAM_B');
     if (rTeamA.length === 0 || rTeamB.length === 0) {
+      hapticWarning();
       Alert.alert('Unbalanced Teams', 'Each team must have at least one player before confirming.');
       return;
     }
@@ -1033,7 +1048,8 @@ export default function SessionDetailScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() =>
+              onPress={() => {
+                hapticWarning();
                 Alert.alert(
                   'Send for Review?',
                   "This will send the match for manual review. Neither player can take further action once submitted.",
@@ -1041,8 +1057,8 @@ export default function SessionDetailScreen() {
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Send for Review', style: 'destructive', onPress: () => rejectEscalate() },
                   ]
-                )
-              }
+                );
+              }}
               disabled={isRejecting}
               style={{ backgroundColor: '#FEE2E2', borderRadius: 24, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#FCA5A5' }}
             >

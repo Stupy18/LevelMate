@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import DurationInput from './DurationInput';
+import { hapticLight } from '../../lib/haptics';
 import { inputFocusedStyle } from '../../lib/theme';
 import type { SportMetricDefinition } from '../../types';
 
@@ -27,7 +28,7 @@ function LevelDotPicker({ value, onChange, max = 10 }: { value: string; onChange
         return (
           <Pressable
             key={n}
-            onPress={() => !disabled && onChange(String(n))}
+            onPress={() => { if (!disabled) { hapticLight(); onChange(String(n)); } }}
             style={{
               width: 36, height: 36, borderRadius: 18,
               backgroundColor: selected === n ? '#6C47FF' : disabled ? '#F9FAFB' : '#F2F3F7',
@@ -53,7 +54,7 @@ function GradeChipRow({ grades, value, onChange }: { grades: string[]; value: st
       {grades.map((g) => (
         <Pressable
           key={g}
-          onPress={() => onChange(value === g ? '' : g)}
+          onPress={() => { hapticLight(); onChange(value === g ? '' : g); }}
           style={{
             paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
             backgroundColor: value === g ? '#6C47FF' : '#F2F3F7',

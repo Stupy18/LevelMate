@@ -4,6 +4,7 @@ import { Clock, MapPin, Users } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatSessionDate } from '../../lib/format';
+import { hapticMedium } from '../../lib/haptics';
 import { getSessionPhotoUrl } from '../../lib/places';
 import type { GameSession } from '../../types';
 
@@ -68,7 +69,7 @@ export default function SessionCard({
     }}>
       {/* Inner Pressable: clipping only — no elevation */}
       <Pressable
-        onPress={onPress}
+        onPress={() => { hapticMedium(); onPress(); }}
         style={({ pressed }) => ({
           height: cardHeight,
           borderRadius: 16,

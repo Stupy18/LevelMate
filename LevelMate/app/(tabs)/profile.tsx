@@ -19,13 +19,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import SportChip from '../../components/sports/SportChip';
+import SportSearchPicker from '../../components/sports/SportSearchPicker';
 import LevelDots from '../../components/sports/LevelDots';
 import SportMetricInput from '../../components/sports/SportMetricInput';
 import Avatar from '../../components/ui/Avatar';
 import EloBadge from '../../components/ui/EloBadge';
 import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
+import { hapticSuccess, hapticWarning } from '../../lib/haptics';
 import { getSportColour } from '../../lib/sportColors';
 import { inputFocusedStyle } from '../../lib/theme';
 import { useAuthStore } from '../../stores/authStore';
@@ -214,6 +215,7 @@ export default function ProfileScreen() {
       await api.post(`/api/v1/users/${user!.id}/sports`, { sportId: selectedSportId, metrics });
     },
     onSuccess: () => {
+      hapticSuccess();
       queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
       queryClient.invalidateQueries({ queryKey: ['user-sports', user?.id] });
       setShowAddSport(false);
@@ -239,6 +241,7 @@ export default function ProfileScreen() {
     onError: (error: any) => {
       const code = error?.response?.data?.errorCode;
       if (code === 'LEVEL_LOCKED_ACTIVE_SESSION') {
+        hapticWarning();
         Alert.alert('Level Locked', error.response.data.message);
       } else {
         Alert.alert('Error', 'Failed to update sport. Please try again.');
@@ -254,6 +257,7 @@ export default function ProfileScreen() {
       });
     },
     onSuccess: () => {
+      hapticSuccess();
       queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
       setShowEditProfile(false);
     },
@@ -650,12 +654,25 @@ export default function ProfileScreen() {
 
             {availableToAdd.length === 0 ? (
               <Text style={{ color: '#6B7280', fontSize: 14, marginBottom: 16 }}>You've added all available sports!</Text>
+            ) : !selectedSportId ? (
+              <SportSearchPicker
+                sports={availableToAdd}
+                isSelected={(sportId) => sportId === selectedSportId}
+                onSelect={(sport) => setSelectedSportId(sport.id)}
+                inputAccessoryViewID={Platform.OS === 'ios' ? 'sport-metric-done' : undefined}
+              />
             ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                {availableToAdd.map((s) => (
-                  <SportChip key={s.id} label={s.name} selected={selectedSportId === s.id} onPress={() => setSelectedSportId(s.id)} />
-                ))}
-              </ScrollView>
+              <Pressable
+                onPress={() => { setSelectedSportId(null); setAddMetricValues({}); }}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 10,
+                  backgroundColor: '#EDE9FF', borderRadius: 12, padding: 12, marginBottom: 16,
+                }}
+              >
+                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: getSportColour(selectedSport?.slug) }} />
+                <Text style={{ flex: 1, color: '#6C47FF', fontSize: 15, fontWeight: '600' }}>{selectedSport?.name}</Text>
+                <Text style={{ color: '#6C47FF', fontSize: 13, fontWeight: '600' }}>Change</Text>
+              </Pressable>
             )}
 
             {selectedSportId && (

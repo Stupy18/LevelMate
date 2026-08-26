@@ -522,6 +522,48 @@ games/controller/GameParticipationController.java (PATCH /{sessionId}/acknowledg
 
 ---
 
+### team-captain-fix — DONE
+
+**What was built:**
+- `GameSessionService.getTeamCaptainId(sessionId, team)` — shared helper: captain of a team is always the earliest-joined player currently on that team, computed identically for Team A and Team B. Removes the old hardcoded "host = Team A captain" rule, which broke when the host was moved to Team B during rebalancing (Team A was left with no captain).
+- `buildResponse()` now calls this helper for both teams when setting `isCapt` on each participant.
+- `GameResultService.disputeResult()`'s opposing-captain permission check (Case 2, PENDING_CONFIRMATION counter-score) now calls the same helper via an injected `GameSessionService`, instead of an independent query — display (`isCapt`) and enforcement can no longer disagree.
+- Hard team-freeze: `GameParticipationService.assignTeam()` throws `TeamsLockedResultExistsException` (409, `TEAMS_LOCKED_RESULT_EXISTS`) the instant any `game_results` row exists for the session, checked before any other permission logic, regardless of caller or session status. `canRebalance()` already returned `false` whenever a result existed; message updated to "Teams are locked once a result has been reported."
+
+**Files added/updated:**
+```
+common/exception/TeamsLockedResultExistsException.java  (new)
+common/GlobalExceptionHandler.java                       (handler: 409, TEAMS_LOCKED_RESULT_EXISTS)
+games/service/GameSessionService.java                    (getTeamCaptainId helper, symmetric buildResponse)
+games/service/GameResultService.java                     (injects GameSessionService, uses shared helper)
+games/service/GameParticipationService.java              (hard freeze guard in assignTeam, canRebalance message)
+```
+
+**Key notes:**
+- Once a result exists, team composition (and therefore captaincy) is frozen for the rest of the dispute lifecycle — `reportResult` already requires `COMPLETED` + rejects a second report, and `assignTeam`'s new guard closes the only remaining path that could change teams afterward.
+- The "who can *initiate* a rebalance" check (host OR earliest Team B joiner) still uses `isHost` as a proxy for Team A captain — intentionally left as-is; only the *display*/*enforcement* captain identity and the *freeze* were in scope for this fix.
+
+---
+
+### sports-catalog-expansion — DONE
+
+**What was built:**
+- ~20 new sports added: 11 `ELO_COMPETITIVE` (Chess, Darts, Pool, Foosball, Beach Volleyball, Beach Tennis, Racquetball, Ultimate Frisbee, Water Polo, Field Hockey, Cricket — each with the standard `self_reported_level` metric) and 9 `PERFORMANCE_BASED` (Golf, Bowling, Skiing, Snowboarding, Skateboarding, Surfing, Yoga, Hiking, CrossFit — each with sport-appropriate metrics)
+- Weightlifting reconciled to 5 standard 1RM lifts: renamed `squat_1rm_kg`/`bench_1rm_kg`/`deadlift_1rm_kg` → `squat_1rm`/`bench_1rm`/`deadlift_1rm` (matching `performance_pbs.metric_key` rows updated too) and added `snatch_1rm`, `clean_jerk_1rm`
+- Martial Arts: added missing `years_training` metric alongside existing `belt_or_level` and `discipline`
+- All inserts guarded with `ON CONFLICT (slug) DO NOTHING` / `ON CONFLICT (sport_id, metric_key) DO NOTHING` — migration is safe to re-run and can't collide with existing sports
+
+**Files added:**
+```
+db/migration/V29__expand_sports_catalog.sql
+```
+
+**Key notes:**
+- Validated by running the migration inside a transaction against the live dev DB and rolling back — confirmed clean apply with expected row counts, including correctly renaming 1 pre-existing `performance_pbs` row per old Weightlifting key.
+- Mobile side: `lib/sportColors.ts` extended with colours for all new sports; `components/sports/SportSearchPicker.tsx` (new) replaced the horizontal chip picker with a searchable, grouped, vertical list in both the Profile "Add Sport" modal and onboarding — see `LevelMate/CLAUDE.md`.
+
+---
+
 ### coaching — FUTURE (do not build yet)
 
 ---
@@ -658,6 +700,12 @@ games/controller/GameParticipationController.java (PATCH /{sessionId}/acknowledg
 | `games/dto/GameResultResponse.java` | Done | Added disputedAt field |
 | `games/service/GameSessionService.java` | Done | buildResponse computes isCapt in-memory (host=A capt, earliest TEAM_B joinedAt=B capt) |
 | `games/service/DisputeResolutionScheduler.java` | Done | Hourly cron, per-game @Transactional resolveOne(), auto-resolve push afterCommit |
+| `common/exception/TeamsLockedResultExistsException.java` | Done | 409 TEAMS_LOCKED_RESULT_EXISTS |
+| `common/GlobalExceptionHandler.java` | Done | Added TeamsLockedResultExistsException handler |
+| `games/service/GameSessionService.java` | Done | getTeamCaptainId(sessionId, team) shared helper; buildResponse computes both captains symmetrically |
+| `games/service/GameResultService.java` | Done | Injects GameSessionService; disputeResult opposing-captain check uses shared helper |
+| `games/service/GameParticipationService.java` | Done | assignTeam hard-freezes teams once any result exists |
+| `db/migration/V29__expand_sports_catalog.sql` | Done | ~20 new sports (11 ELO, 9 PERFORMANCE_BASED), Weightlifting 1RM key reconciliation, Martial Arts years_training |
 
 ---
 
@@ -677,8 +725,13 @@ docker compose down            # stop everything
 docker compose down -v         # stop + wipe postgres volume
 
 # Physical device (Expo Go) — pass your machine's LAN IP:
-HOST_IP=192.168.x.x docker compose up
+HOST_IP=192.168.x.x docker compose up --build
 ```
+
+The mobile `expo` service has no bind-mount volume — `COPY . .` happens once at image
+build time, so `--build` is required after ANY source or `package.json` change, not just
+"first run." Optionally set `EXPO_TOKEN` in the root `.env` (see `.env.example`) so the
+Expo CLI authenticates non-interactively instead of showing manifest-signing warnings.
 
 **Services started:**
 - `postgres`  — PostgreSQL 16 at `localhost:5433`

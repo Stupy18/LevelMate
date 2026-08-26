@@ -152,6 +152,8 @@ export default function DiscoverScreen() {
   const [selectedSportIds, setSelectedSportIds] = useState<string[]>([]);
   const [myLevelActive, setMyLevelActive] = useState(false);
   const chipScrollRef = useRef<ScrollView>(null);
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const [skeletonMounted, setSkeletonMounted] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -219,6 +221,24 @@ export default function DiscoverScreen() {
 
   const sessions = data?.pages.flatMap((p) => p.content ?? []) ?? [];
   const showSkeleton = useMinLoadingTime(isLoading);
+
+  // Crossfade: skeleton fades out as the FlatList (content or empty state) fades in.
+  // Keep the skeleton mounted until the fade finishes so its shimmer loop doesn't
+  // just cut off mid-animation.
+  useEffect(() => {
+    if (showSkeleton) {
+      setSkeletonMounted(true);
+      contentOpacity.setValue(0);
+    } else {
+      Animated.timing(contentOpacity, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setSkeletonMounted(false);
+      });
+    }
+  }, [showSkeleton]);
 
   const handleSportChipPress = useCallback((sportId: string) => {
     setSelectedSportIds((prev) => {
@@ -302,55 +322,70 @@ export default function DiscoverScreen() {
         </Pressable>
       </View>
 
-      {showSkeleton ? (
-        <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
-          {ListHeader}
-          <SkeletonList />
-        </View>
-      ) : (
-        <FlatList
-          data={sessions}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 }}
-          ListHeaderComponent={ListHeader}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching && !isFetchingNextPage}
-              onRefresh={refetch}
-              tintColor="#6C47FF"
-            />
-          }
-          onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
-          onEndReachedThreshold={0.3}
-          ListEmptyComponent={
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 }}>
-              <Compass size={52} color="#D1D5DB" />
-              <Text style={{ color: '#0D0D14', fontSize: 18, fontWeight: '600', textAlign: 'center', marginTop: 16 }}>
-                No games nearby
-              </Text>
-              <Text style={{ color: '#6B7280', fontSize: 14, textAlign: 'center', marginTop: 4 }}>
-                Be the first to create one!
-              </Text>
-              <Pressable
-                onPress={() => router.push('/(tabs)/create')}
-                style={{ backgroundColor: '#6C47FF', borderRadius: 24, paddingHorizontal: 32, paddingVertical: 14, marginTop: 24 }}
-              >
-                <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 15 }}>Create Game</Text>
-              </Pressable>
-            </View>
-          }
-          renderItem={({ item, index }) => (
-            <SessionCard
-              session={item}
-              onPress={() => router.push(`/session/${item.id}`)}
-              hostDisplayName={item.hostDisplayName}
-              hostUserId={item.hostUserId}
-              featured={index === 0}
-            />
-          )}
-          ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color="#6C47FF" style={{ marginVertical: 16 }} /> : null}
-        />
-      )}
+      {/* Fixed header block — always mounted in the same place, never shifts */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
+        {ListHeader}
+      </View>
+
+      {/* Content area — skeleton crossfades into the list/empty state below the header */}
+      <View style={{ flex: 1 }}>
+        {skeletonMounted && (
+          <Animated.View
+            pointerEvents={showSkeleton ? 'auto' : 'none'}
+            style={[
+              StyleSheet.absoluteFill,
+              { paddingHorizontal: 16 },
+              { opacity: contentOpacity.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) },
+            ]}
+          >
+            <SkeletonList />
+          </Animated.View>
+        )}
+
+        <Animated.View style={{ flex: 1, opacity: contentOpacity }} pointerEvents={showSkeleton ? 'none' : 'auto'}>
+          <FlatList
+            data={sessions}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefetching && !isFetchingNextPage}
+                onRefresh={refetch}
+                tintColor="#6C47FF"
+              />
+            }
+            onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+            onEndReachedThreshold={0.3}
+            ListEmptyComponent={
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 }}>
+                <Compass size={52} color="#D1D5DB" />
+                <Text style={{ color: '#0D0D14', fontSize: 18, fontWeight: '600', textAlign: 'center', marginTop: 16 }}>
+                  No games nearby
+                </Text>
+                <Text style={{ color: '#6B7280', fontSize: 14, textAlign: 'center', marginTop: 4 }}>
+                  Be the first to create one!
+                </Text>
+                <Pressable
+                  onPress={() => router.push('/(tabs)/create')}
+                  style={{ backgroundColor: '#6C47FF', borderRadius: 24, paddingHorizontal: 32, paddingVertical: 14, marginTop: 24 }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 15 }}>Create Game</Text>
+                </Pressable>
+              </View>
+            }
+            renderItem={({ item, index }) => (
+              <SessionCard
+                session={item}
+                onPress={() => router.push(`/session/${item.id}`)}
+                hostDisplayName={item.hostDisplayName}
+                hostUserId={item.hostUserId}
+                featured={index === 0}
+              />
+            )}
+            ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color="#6C47FF" style={{ marginVertical: 16 }} /> : null}
+          />
+        </Animated.View>
+      </View>
     </SafeAreaView>
     </ScreenBackground>
   );

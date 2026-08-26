@@ -31,6 +31,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { format } from 'date-fns';
+import { hapticMedium } from '../../lib/haptics';
 import type { PendingResult } from '../../types';
 
 const { height: SCREEN_H, width: SCREEN_W } = Dimensions.get('window');
@@ -438,7 +439,7 @@ function PendingResultSheet({ visible, sessions, onDismiss, onNavigate }: Props)
               activeOpacity={0.85}
               onPressIn={handleCtaPressIn}
               onPressOut={handleCtaPressOut}
-              onPress={() => item && onNavigate(item.sessionId)}
+              onPress={() => { if (item) { hapticMedium(); onNavigate(item.sessionId); } }}
             >
               <Animated.View style={ctaStyle}>
                 <Text style={styles.ctaText}>{item ? ctaLabelFor(item.pendingType) : 'Go to game'}</Text>

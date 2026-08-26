@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft } from 'lucide-react-native';
 import ScreenBackground from '../../components/ui/ScreenBackground';
+import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { inputFocusedStyle } from '../../lib/theme';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -75,12 +76,14 @@ export default function RegisterScreen() {
   async function handleCreate() {
     const errors = validate(firstName, lastName, email, password, confirmPassword);
     if (Object.keys(errors).length > 0) {
+      hapticError();
       setFieldErrors(errors);
       return;
     }
     setFieldErrors({});
     try {
       await register(firstName.trim(), lastName.trim(), email, password, avatarData ?? undefined);
+      hapticSuccess();
       router.replace('/onboarding/sports');
     } catch (err: any) {
       const code = err?.response?.data?.errorCode;

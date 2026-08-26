@@ -19,6 +19,7 @@ import SportChip from '../../components/sports/SportChip';
 import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
 import { formatSessionDate, formatDuration } from '../../lib/format';
+import { hapticError, hapticLight, hapticMedium, hapticSuccess, hapticWarning } from '../../lib/haptics';
 import { inputFocusedStyle } from '../../lib/theme';
 import { useAuthStore } from '../../stores/authStore';
 import type { ConflictingSession } from '../../types';
@@ -134,6 +135,7 @@ export default function CreateScreen() {
       return data;
     },
     onSuccess: (data) => {
+      hapticSuccess();
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       queryClient.invalidateQueries({ queryKey: ['my-sessions'] });
       router.push(`/session/${data.id}`);
@@ -141,9 +143,11 @@ export default function CreateScreen() {
     onError: (err: any) => {
       const errorCode = err?.response?.data?.errorCode;
       if (errorCode === 'TIME_CONFLICT') {
+        hapticWarning();
         setConflictingSession(err.response.data.conflictingSession);
         return;
       }
+      hapticError();
       setSubmitError(err?.response?.data?.message ?? 'Failed to create game. Please try again.');
     },
   });
@@ -161,8 +165,12 @@ export default function CreateScreen() {
   }
 
   function handleSubmit() {
+    hapticMedium();
     setSubmitError('');
-    if (!validate()) return;
+    if (!validate()) {
+      hapticError();
+      return;
+    }
     const payload: Record<string, any> = {
       sportId,
       scheduledAt: date!.toISOString(),
@@ -334,7 +342,7 @@ export default function CreateScreen() {
                       {gradeScale.map(g => (
                         <Pressable
                           key={g}
-                          onPress={() => setGradeMin(g === gradeMin ? null : g)}
+                          onPress={() => { hapticLight(); setGradeMin(g === gradeMin ? null : g); }}
                           style={{
                             marginRight: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
                             backgroundColor: gradeMin === g ? '#6C47FF' : '#F2F3F7',
@@ -352,7 +360,7 @@ export default function CreateScreen() {
                       {gradeScale.map(g => (
                         <Pressable
                           key={g}
-                          onPress={() => setGradeMax(g === gradeMax ? null : g)}
+                          onPress={() => { hapticLight(); setGradeMax(g === gradeMax ? null : g); }}
                           style={{
                             marginRight: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
                             backgroundColor: gradeMax === g ? '#6C47FF' : '#F2F3F7',

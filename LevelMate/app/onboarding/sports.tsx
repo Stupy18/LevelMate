@@ -1,17 +1,22 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
+  InputAccessoryView,
+  Keyboard,
+  Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Check } from 'lucide-react-native';
+import { Check, Search } from 'lucide-react-native';
 import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
+import { hapticLight } from '../../lib/haptics';
 import { getSportColour } from '../../lib/sportColors';
 import { useAuthStore } from '../../stores/authStore';
 import type { Sport } from '../../types';
@@ -22,6 +27,13 @@ interface SelectedSport {
   grade?: string;
 }
 
+const RATING_TYPE_ORDER: Sport['ratingType'][] = ['ELO_COMPETITIVE', 'GRADE_BASED', 'PERFORMANCE_BASED'];
+const RATING_TYPE_SECTION_HEADER: Record<Sport['ratingType'], string> = {
+  ELO_COMPETITIVE: 'Competitive',
+  GRADE_BASED: 'Grade-Based',
+  PERFORMANCE_BASED: 'Performance-Based',
+};
+
 export default function SportsOnboardingScreen() {
   const { user } = useAuthStore();
   const [sports, setSports] = useState<Sport[]>([]);
@@ -29,6 +41,19 @@ export default function SportsOnboardingScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  const groups = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const filtered = query ? sports.filter((s) => s.name.toLowerCase().includes(query)) : sports;
+    return RATING_TYPE_ORDER
+      .map((ratingType) => ({
+        ratingType,
+        sports: filtered.filter((s) => s.ratingType === ratingType).sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .filter((g) => g.sports.length > 0);
+  }, [sports, search]);
 
   useEffect(() => {
     api.get('/api/v1/sports')
@@ -38,6 +63,7 @@ export default function SportsOnboardingScreen() {
   }, []);
 
   function toggleSport(sport: Sport) {
+    hapticLight();
     setSelected((prev) => {
       if (prev[sport.id]) {
         const next = { ...prev };
@@ -101,6 +127,15 @@ export default function SportsOnboardingScreen() {
   return (
     <ScreenBackground>
     <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID="onboarding-sport-search-done">
+          <View style={{ backgroundColor: '#F8F8F8', borderTopWidth: 0.5, borderTopColor: '#E0E0E0', padding: 8, alignItems: 'flex-end' }}>
+            <TouchableOpacity onPress={Keyboard.dismiss}>
+              <Text style={{ color: '#007AFF', fontSize: 17, fontWeight: '600' }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
       <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 24 }}>
         <Text style={{ color: '#0D0D14', fontSize: 28, fontWeight: '700', marginBottom: 4 }}>
           What sports do you play?
@@ -111,86 +146,125 @@ export default function SportsOnboardingScreen() {
 
         {error ? <Text style={{ color: '#EF4444', fontSize: 13, marginBottom: 16 }}>{error}</Text> : null}
 
-        <FlatList
-          data={sports}
-          numColumns={2}
-          keyExtractor={(item) => item.id}
-          columnWrapperStyle={{ gap: 12 }}
-          contentContainerStyle={{ gap: 12, paddingBottom: 24 }}
-          renderItem={({ item }) => {
-            const sel = selected[item.id];
-            const colour = getSportColour(item.slug);
-            return (
-              <Pressable
-                onPress={() => toggleSport(item)}
-                style={{
-                  flex: 1, borderRadius: 16, padding: 16,
-                  backgroundColor: sel ? '#EDE9FF' : '#FFFFFF',
-                  borderWidth: 1,
-                  borderColor: sel ? '#6C47FF' : '#E5E7EB',
-                  shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-                  shadowOpacity: sel ? 0 : 0.05, shadowRadius: 2, elevation: sel ? 0 : 1,
-                }}
-              >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colour }} />
-                  {sel && <Check size={16} color="#6C47FF" />}
-                </View>
-                <Text style={{ color: sel ? '#6C47FF' : '#0D0D14', fontWeight: '600', fontSize: 14, marginBottom: sel ? 8 : 0 }}>
-                  {item.name}
-                </Text>
-
-                {sel && (
-                  <View style={{ marginTop: 4 }}>
-                    {item.ratingType === 'GRADE_BASED' ? (
-                      <View onStartShouldSetResponder={() => true}>
-                        <TextInput
-                          style={{
-                            backgroundColor: '#FFFFFF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
-                            fontSize: 13, color: '#0D0D14', borderWidth: 1, borderColor: '#E5E7EB', marginTop: 2,
-                          }}
-                          placeholder="Grade (e.g. V5, 6a)"
-                          placeholderTextColor="#9CA3AF"
-                          value={sel.grade ?? ''}
-                          onChangeText={(t) => changeGrade(item.id, t)}
-                          autoCapitalize="none"
-                        />
-                      </View>
-                    ) : item.ratingType === 'ELO_COMPETITIVE' ? (
-                      <>
-                        <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>
-                          Level: <Text style={{ color: '#6C47FF', fontWeight: '700' }}>{sel.level}</Text>
-                          <Text style={{ color: '#9CA3AF', fontSize: 11 }}>/4</Text>
-                        </Text>
-                        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 6 }}>
-                          <Pressable
-                            onPress={(e) => { e.stopPropagation?.(); changeLevel(item.id, -1); }}
-                            style={{ backgroundColor: '#FFFFFF', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: '#E5E7EB' }}
-                          >
-                            <Text style={{ color: '#0D0D14', fontWeight: '700' }}>−</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={(e) => { e.stopPropagation?.(); changeLevel(item.id, +1); }}
-                            style={{ backgroundColor: '#FFFFFF', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: '#E5E7EB' }}
-                          >
-                            <Text style={{ color: '#0D0D14', fontWeight: '700' }}>+</Text>
-                          </Pressable>
-                        </View>
-                        <Text style={{ color: '#9CA3AF', fontSize: 10, lineHeight: 13 }}>
-                          Levels 5–10 unlock through match results
-                        </Text>
-                      </>
-                    ) : (
-                      <Text style={{ color: '#9CA3AF', fontSize: 11, marginTop: 2 }}>
-                        Add performance data from your profile
-                      </Text>
-                    )}
-                  </View>
-                )}
-              </Pressable>
-            );
+        <View
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 10,
+            backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1,
+            borderColor: searchFocused ? '#6C47FF' : '#E5E7EB',
+            paddingHorizontal: 14, height: 48, marginBottom: 16,
+            shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: searchFocused ? 0.1 : 0.04, shadowRadius: searchFocused ? 6 : 3, elevation: searchFocused ? 2 : 1,
           }}
-        />
+        >
+          <Search size={16} color="#9CA3AF" />
+          <TextInput
+            style={{ flex: 1, fontSize: 15, color: '#0D0D14' }}
+            placeholder="Search sports..."
+            placeholderTextColor="#9CA3AF"
+            value={search}
+            onChangeText={setSearch}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            returnKeyType="done"
+            inputAccessoryViewID={Platform.OS === 'ios' ? 'onboarding-sport-search-done' : undefined}
+          />
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>
+          {groups.length === 0 ? (
+            <Text style={{ color: '#9CA3AF', fontSize: 14, textAlign: 'center', paddingVertical: 20 }}>
+              No sports found
+            </Text>
+          ) : (
+            groups.map((group) => (
+              <View key={group.ratingType} style={{ marginBottom: 12 }}>
+                <Text style={{
+                  color: '#9CA3AF', fontSize: 11, fontWeight: '700', textTransform: 'uppercase',
+                  letterSpacing: 0.6, marginBottom: 8,
+                }}>
+                  {RATING_TYPE_SECTION_HEADER[group.ratingType]}
+                </Text>
+                {group.sports.map((item) => {
+                  const sel = selected[item.id];
+                  const colour = getSportColour(item.slug);
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => toggleSport(item)}
+                      style={{
+                        borderRadius: 16, padding: 16, marginBottom: 10,
+                        backgroundColor: sel ? '#EDE9FF' : '#FFFFFF',
+                        borderWidth: 1,
+                        borderColor: sel ? '#6C47FF' : '#E5E7EB',
+                        shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: sel ? 0 : 0.05, shadowRadius: 2, elevation: sel ? 0 : 1,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: sel ? 8 : 0 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colour }} />
+                          <Text style={{ color: sel ? '#6C47FF' : '#0D0D14', fontWeight: '600', fontSize: 14 }}>
+                            {item.name}
+                          </Text>
+                        </View>
+                        {sel && <Check size={16} color="#6C47FF" />}
+                      </View>
+
+                      {sel && (
+                        <View>
+                          {item.ratingType === 'GRADE_BASED' ? (
+                            <View onStartShouldSetResponder={() => true}>
+                              <TextInput
+                                style={{
+                                  backgroundColor: '#FFFFFF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+                                  fontSize: 13, color: '#0D0D14', borderWidth: 1, borderColor: '#E5E7EB', marginTop: 2,
+                                }}
+                                placeholder="Grade (e.g. V5, 6a)"
+                                placeholderTextColor="#9CA3AF"
+                                value={sel.grade ?? ''}
+                                onChangeText={(t) => changeGrade(item.id, t)}
+                                autoCapitalize="none"
+                                inputAccessoryViewID={Platform.OS === 'ios' ? 'onboarding-sport-search-done' : undefined}
+                              />
+                            </View>
+                          ) : item.ratingType === 'ELO_COMPETITIVE' ? (
+                            <>
+                              <Text style={{ color: '#6B7280', fontSize: 12, marginBottom: 6 }}>
+                                Level: <Text style={{ color: '#6C47FF', fontWeight: '700' }}>{sel.level}</Text>
+                                <Text style={{ color: '#9CA3AF', fontSize: 11 }}>/4</Text>
+                              </Text>
+                              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 6 }}>
+                                <Pressable
+                                  onPress={(e) => { e.stopPropagation?.(); changeLevel(item.id, -1); }}
+                                  style={{ backgroundColor: '#FFFFFF', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: '#E5E7EB' }}
+                                >
+                                  <Text style={{ color: '#0D0D14', fontWeight: '700' }}>−</Text>
+                                </Pressable>
+                                <Pressable
+                                  onPress={(e) => { e.stopPropagation?.(); changeLevel(item.id, +1); }}
+                                  style={{ backgroundColor: '#FFFFFF', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: '#E5E7EB' }}
+                                >
+                                  <Text style={{ color: '#0D0D14', fontWeight: '700' }}>+</Text>
+                                </Pressable>
+                              </View>
+                              <Text style={{ color: '#9CA3AF', fontSize: 10, lineHeight: 13 }}>
+                                Levels 5–10 unlock through match results
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={{ color: '#9CA3AF', fontSize: 11, marginTop: 2 }}>
+                              Add performance data from your profile
+                            </Text>
+                          )}
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))
+          )}
+        </ScrollView>
       </View>
 
       {/* Bottom actions */}

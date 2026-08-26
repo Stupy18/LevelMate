@@ -1,4 +1,5 @@
 import { Pressable, Text, View } from 'react-native';
+import { hapticLight } from '../../lib/haptics';
 
 interface Props {
   label: string;
@@ -10,7 +11,7 @@ interface Props {
 export default function SportChip({ label, selected, onPress, icon }: Props) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => { hapticLight(); onPress(); }}
       style={{
         flexDirection: 'row',
         alignItems: 'center',

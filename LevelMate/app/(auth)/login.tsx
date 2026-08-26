@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ScreenBackground from '../../components/ui/ScreenBackground';
+import { hapticError } from '../../lib/haptics';
 import { inputFocusedStyle } from '../../lib/theme';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -28,6 +29,7 @@ export default function LoginScreen() {
       await login(email, password);
       // _layout.tsx effect handles redirect when isAuthenticated flips
     } catch {
+      hapticError();
       setPassword('');
       setError('No account found with these credentials. Check your email and password.');
     }
