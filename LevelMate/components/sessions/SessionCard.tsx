@@ -91,7 +91,7 @@ export default function SessionCard({
         <LinearGradient
           colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.72)']}
           locations={[0.2, 1]}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
 
         {/* Top row */}

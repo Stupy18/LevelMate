@@ -24,8 +24,10 @@ import LevelDots from '../../components/sports/LevelDots';
 import SportMetricInput from '../../components/sports/SportMetricInput';
 import Avatar from '../../components/ui/Avatar';
 import EloBadge from '../../components/ui/EloBadge';
+import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
 import { getSportColour } from '../../lib/sportColors';
+import { inputFocusedStyle } from '../../lib/theme';
 import { useAuthStore } from '../../stores/authStore';
 import type { GameSession, ProfileSport, Sport, SportMetricDefinition, SportMetricValue, UserProfile } from '../../types';
 
@@ -127,6 +129,7 @@ export default function ProfileScreen() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [editDisplayName, setEditDisplayName] = useState('');
   const [editAvatarData, setEditAvatarData] = useState<string | null>(null);
+  const [displayNameFocused, setDisplayNameFocused] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -289,9 +292,11 @@ export default function ProfileScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC', alignItems: 'center', justifyContent: 'center' }}>
+      <ScreenBackground>
+      <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color="#6C47FF" size="large" />
       </SafeAreaView>
+      </ScreenBackground>
     );
   }
 
@@ -301,10 +306,10 @@ export default function ProfileScreen() {
     padding: 16,
     marginBottom: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 3,
   } as const;
 
   function renderSportCard(s: ProfileSport) {
@@ -426,7 +431,8 @@ export default function ProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+    <ScreenBackground>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
       {Platform.OS === 'ios' && (
         <InputAccessoryView nativeID="sport-metric-done">
           <View style={{ backgroundColor: '#F8F8F8', borderTopWidth: 0.5, borderTopColor: '#E0E0E0', padding: 8, alignItems: 'flex-end' }}>
@@ -582,15 +588,21 @@ export default function ProfileScreen() {
               Display name
             </Text>
             <TextInput
-              style={{
-                backgroundColor: '#F8F9FC', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
-                fontSize: 15, color: '#0D0D14', borderWidth: 1.5,
-                borderColor: editDisplayName ? '#6C47FF' : '#E5E7EB', marginBottom: 24,
-              }}
+              style={[
+                {
+                  backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
+                  fontSize: 15, color: '#0D0D14', borderWidth: 1,
+                  borderColor: '#E5E7EB', marginBottom: 24,
+                  shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
+                },
+                displayNameFocused && inputFocusedStyle,
+              ]}
               value={editDisplayName}
               onChangeText={setEditDisplayName}
               autoCapitalize="words"
               returnKeyType="done"
+              onFocus={() => setDisplayNameFocused(true)}
+              onBlur={() => setDisplayNameFocused(false)}
             />
 
             <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -847,5 +859,6 @@ export default function ProfileScreen() {
         </View>
       </Modal>
     </SafeAreaView>
+    </ScreenBackground>
   );
 }

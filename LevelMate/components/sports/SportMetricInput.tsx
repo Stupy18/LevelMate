@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import DurationInput from './DurationInput';
+import { inputFocusedStyle } from '../../lib/theme';
 import type { SportMetricDefinition } from '../../types';
 
 const V_GRADES = ['VB', 'V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9', 'V10', 'V11', 'V12', 'V13', 'V14', 'V15', 'V16', 'V17'];
@@ -69,6 +71,8 @@ function GradeChipRow({ grades, value, onChange }: { grades: string[]; value: st
 }
 
 export default function SportMetricInput({ metric, value, onChange, gradeScale = 'v', onGradeScaleChange, maxLevel = 10, inputAccessoryViewID }: Props) {
+  const [focused, setFocused] = useState(false);
+
   if (metric.inputType === 'number' && metric.unit === '1-10') {
     return <LevelDotPicker value={value} onChange={onChange} max={maxLevel} />;
   }
@@ -77,15 +81,21 @@ export default function SportMetricInput({ metric, value, onChange, gradeScale =
     return (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <TextInput
-          style={{
-            flex: 1, backgroundColor: '#F8F9FC', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
-            fontSize: 15, color: '#0D0D14', borderWidth: 1.5, borderColor: value ? '#6C47FF' : '#E5E7EB',
-          }}
+          style={[
+            {
+              flex: 1, backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
+              fontSize: 15, color: '#0D0D14', borderWidth: 1, borderColor: '#E5E7EB',
+              shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
+            },
+            focused && inputFocusedStyle,
+          ]}
           value={value}
           onChangeText={onChange}
           keyboardType="decimal-pad"
           returnKeyType="done"
           onSubmitEditing={() => Keyboard.dismiss()}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           inputAccessoryViewID={Platform.OS === 'ios' ? inputAccessoryViewID : undefined}
           placeholder={metric.unit ? `e.g. 100` : 'Enter value'}
           placeholderTextColor="#9CA3AF"
@@ -133,14 +143,20 @@ export default function SportMetricInput({ metric, value, onChange, gradeScale =
 
   return (
     <TextInput
-      style={{
-        backgroundColor: '#F8F9FC', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
-        fontSize: 15, color: '#0D0D14', borderWidth: 1.5, borderColor: value ? '#6C47FF' : '#E5E7EB',
-      }}
+      style={[
+        {
+          backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
+          fontSize: 15, color: '#0D0D14', borderWidth: 1, borderColor: '#E5E7EB',
+          shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
+        },
+        focused && inputFocusedStyle,
+      ]}
       value={value}
       onChangeText={onChange}
       returnKeyType="done"
       onSubmitEditing={() => Keyboard.dismiss()}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       inputAccessoryViewID={Platform.OS === 'ios' ? inputAccessoryViewID : undefined}
       placeholder={`Enter ${metric.label.toLowerCase()}`}
       placeholderTextColor="#9CA3AF"

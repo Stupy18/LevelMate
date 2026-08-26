@@ -4,6 +4,7 @@ import { ChevronRight, Trophy } from 'lucide-react-native';
 import { ActivityIndicator, FlatList, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import SessionCard from '../../components/sessions/SessionCard';
+import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
 import { usePendingSheetStore } from '../../stores/pendingSheetStore';
@@ -51,9 +52,11 @@ export default function MyGamesScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC', alignItems: 'center', justifyContent: 'center' }}>
+      <ScreenBackground>
+      <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color="#6C47FF" size="large" />
       </SafeAreaView>
+      </ScreenBackground>
     );
   }
 
@@ -99,7 +102,8 @@ export default function MyGamesScreen() {
   ) : null;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+    <ScreenBackground>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
       <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
         <Text style={{ color: '#0D0D14', fontSize: 28, fontWeight: '700' }}>My Games</Text>
       </View>
@@ -147,5 +151,6 @@ export default function MyGamesScreen() {
       />
 
     </SafeAreaView>
+    </ScreenBackground>
   );
 }

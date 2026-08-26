@@ -12,6 +12,7 @@ services:
     environment:
       EXPO_PUBLIC_API_URL: http://${HOST_IP:-10.0.2.2}:8080
       REACT_NATIVE_PACKAGER_HOSTNAME: ${HOST_IP:-10.0.2.2}
+      EXPO_TOKEN: ${EXPO_TOKEN:-}
 
 volumes:
   expo_modules:

@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Bell, ChevronRight, Compass, MapPin, TrendingUp } from 'lucide-react-native';
 import SessionCard from '../../components/sessions/SessionCard';
 import SportChip from '../../components/sports/SportChip';
+import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
 import { useAuthStore } from '../../stores/authStore';
 import type { GameSession, UserProfile } from '../../types';
@@ -52,7 +53,7 @@ function SkeletonSessionCard({
     }}>
       <View style={{ height: h, borderRadius: 16, overflow: 'hidden', backgroundColor: '#E2E4EA' }}>
         {/* Shimmer sweep */}
-        <Animated.View style={{ ...StyleSheet.absoluteFillObject, transform: [{ translateX: shimmerX }] }}>
+        <Animated.View style={{ ...StyleSheet.absoluteFill, transform: [{ translateX: shimmerX }] }}>
           <LinearGradient
             colors={[
               'rgba(255,255,255,0)',
@@ -72,7 +73,7 @@ function SkeletonSessionCard({
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.28)']}
           locations={[0.3, 1]}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
 
@@ -127,7 +128,7 @@ function SkeletonList() {
 function useMinLoadingTime(loading: boolean, minMs = 700) {
   const [show, setShow] = useState(loading);
   const startRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (loading) {
@@ -240,6 +241,7 @@ export default function DiscoverScreen() {
             flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF',
             borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12,
             marginBottom: 12, paddingHorizontal: 12, paddingVertical: 10, gap: 8,
+            shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
           }}
         >
           <MapPin size={16} color="#FF6B35" />
@@ -291,10 +293,11 @@ export default function DiscoverScreen() {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+    <ScreenBackground>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 }}>
         <Text style={{ color: '#0D0D14', fontSize: 28, fontWeight: '700' }}>Discover</Text>
-        <Pressable style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
           <Bell size={18} color="#6B7280" />
         </Pressable>
       </View>
@@ -349,5 +352,6 @@ export default function DiscoverScreen() {
         />
       )}
     </SafeAreaView>
+    </ScreenBackground>
   );
 }

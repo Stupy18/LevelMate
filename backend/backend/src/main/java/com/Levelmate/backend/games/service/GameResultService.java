@@ -24,7 +24,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -38,6 +37,7 @@ public class GameResultService {
     private final ResultVoteRepository resultVoteRepository;
     private final EloService eloService;
     private final PushNotificationService pushNotificationService;
+    private final GameSessionService gameSessionService;
 
     @Transactional
     public GameResultResponse reportResult(UUID sessionId, UUID userId, ReportResultRequest request) {
@@ -237,16 +237,17 @@ public class GameResultService {
                     .orElse(TeamSide.TEAM_A);
             TeamSide opposingTeam = (reporterTeam == TeamSide.TEAM_A) ? TeamSide.TEAM_B : TeamSide.TEAM_A;
 
-            // Only the opposing team's captain may submit a counter-score
-            Optional<GameParticipant> opposingCaptainOpt = gameParticipantRepository
-                    .findFirstBySessionIdAndTeamOrderByJoinedAtAsc(sessionId, opposingTeam);
-            boolean isOpposingCaptain = opposingCaptainOpt
-                    .map(p -> p.getUser().getId().equals(userId))
-                    .orElse(false);
+            // Only the opposing team's captain may submit a counter-score — computed via the
+            // same earliest-joiner rule as buildResponse, using current team assignments, so
+            // display (isCapt) and enforcement here can never disagree.
+            UUID opposingCaptainId = gameSessionService.getTeamCaptainId(sessionId, opposingTeam);
+            boolean isOpposingCaptain = opposingCaptainId != null && opposingCaptainId.equals(userId);
             if (!isOpposingCaptain) {
-                String captainName = opposingCaptainOpt
-                        .map(p -> p.getUser().getFirstName() + " " + p.getUser().getLastName())
-                        .orElse("your team captain");
+                String captainName = (opposingCaptainId != null)
+                        ? gameParticipantRepository.findBySessionIdAndUserId(sessionId, opposingCaptainId)
+                                .map(p -> p.getUser().getFirstName() + " " + p.getUser().getLastName())
+                                .orElse("your team captain")
+                        : "your team captain";
                 throw new com.Levelmate.backend.common.exception.ForbiddenException(
                         "Only the team captain can submit a counter-score. Your team's captain is " + captainName + ".");
             }

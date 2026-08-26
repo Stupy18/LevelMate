@@ -166,8 +166,14 @@ public class GameParticipationService {
         GameSession session = gameSessionRepository.findById(sessionId)
                 .orElseThrow(SessionNotFoundException::new);
 
-        boolean isCompletedNoResult = session.getStatus() == SessionStatus.COMPLETED
-                && !gameResultRepository.existsBySessionId(sessionId);
+        // Hard freeze: once a result row exists (any status), team composition — and
+        // therefore captaincy — can never change again, regardless of caller or session
+        // status. This must be checked before any other permission logic below.
+        if (gameResultRepository.existsBySessionId(sessionId)) {
+            throw new TeamsLockedResultExistsException();
+        }
+
+        boolean isCompletedNoResult = session.getStatus() == SessionStatus.COMPLETED;
 
         if (isCompletedNoResult) {
             // Rebalancing window: host (Team A captain) OR Team B captain allowed
@@ -227,7 +233,7 @@ public class GameParticipationService {
             return new CanRebalanceResponse(false, "Session is not completed.");
         }
         if (gameResultRepository.existsBySessionId(sessionId)) {
-            return new CanRebalanceResponse(false, "A result has already been submitted.");
+            return new CanRebalanceResponse(false, "Teams are locked once a result has been reported.");
         }
         boolean isHost = session.getHost().getId().equals(userId);
         boolean isTeamBCaptain = gameParticipantRepository

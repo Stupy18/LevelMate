@@ -16,6 +16,8 @@ import type { PendingResult } from '../types';
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
@@ -102,6 +104,14 @@ function AppContent() {
   useEffect(() => {
     Notifications.setBadgeCountAsync(pendingResults.length);
   }, [pendingResults]);
+
+  // If the user resolves the last pending item while the sheet is open
+  // (e.g. from inside the session detail screen), close it immediately.
+  useEffect(() => {
+    if (showPendingSheet && pendingResults.length === 0) {
+      closePendingSheet();
+    }
+  }, [pendingResults.length, showPendingSheet]);
 
   // Auto-popup: fires when new pending sessions appear, with a cooldown after dismiss/navigate
   useEffect(() => {

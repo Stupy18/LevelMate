@@ -8,10 +8,13 @@
  *   taps always reach their handlers unintercepted.
  * - Navigation is done via `onNavigate` callback; the parent calls router.push()
  *   outside the Modal to avoid Android navigation-context issues.
- * - useNativeDriver: false on translateY so we can clamp dy to ≥0 in JS.
- * - ctaScale uses useNativeDriver: true (transform only) for the press animation.
+ * - translateY, backdropOpa and ctaScale all use useNativeDriver: true — they only
+ *   ever drive transform/opacity, so the animations run on the native thread and
+ *   stay smooth even while the JS thread is busy with query refetches. Direct
+ *   `.setValue()` calls from PanResponder (JS thread, to clamp dy ≥ 0) still work
+ *   fine on a natively-driven value.
  */
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -174,7 +177,7 @@ interface Props {
   onNavigate: (sessionId: string) => void;
 }
 
-export default function PendingResultSheet({ visible, sessions, onDismiss, onNavigate }: Props) {
+function PendingResultSheet({ visible, sessions, onDismiss, onNavigate }: Props) {
   const { bottom: safeBottom } = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
   const [modalVisible, setModalVisible] = useState(false);
@@ -205,12 +208,12 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
             toValue: 0,
             duration: 340,
             easing: Easing.out(Easing.cubic),
-            useNativeDriver: false,
+            useNativeDriver: true,
           }),
           Animated.timing(backdropOpa, {
             toValue: 0.5,
             duration: 240,
-            useNativeDriver: false,
+            useNativeDriver: true,
           }),
         ]).start();
       });
@@ -220,9 +223,9 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
           toValue: SHEET_H,
           duration: 260,
           easing: Easing.in(Easing.cubic),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
-        Animated.timing(backdropOpa, { toValue: 0, duration: 220, useNativeDriver: false }),
+        Animated.timing(backdropOpa, { toValue: 0, duration: 220, useNativeDriver: true }),
       ]).start(({ finished }) => {
         if (finished) setModalVisible(false);
       });
@@ -245,16 +248,16 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
               toValue: SHEET_H,
               duration: 260,
               easing: Easing.in(Easing.cubic),
-              useNativeDriver: false,
+              useNativeDriver: true,
             }),
-            Animated.timing(backdropOpa, { toValue: 0, duration: 200, useNativeDriver: false }),
+            Animated.timing(backdropOpa, { toValue: 0, duration: 200, useNativeDriver: true }),
           ]).start(() => onDismissRef.current());
         } else {
           Animated.timing(translateY, {
             toValue: 0,
             duration: 220,
             easing: Easing.out(Easing.quad),
-            useNativeDriver: false,
+            useNativeDriver: true,
           }).start();
         }
       },
@@ -267,6 +270,15 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
   const handleCtaPressOut = () => {
     Animated.spring(ctaScale, { toValue: 1, damping: 10, stiffness: 300, useNativeDriver: true }).start();
   };
+
+  // translateY/backdropOpa/ctaScale are stable refs, so these composed styles
+  // never need to be recreated — avoids new array/object literals every render.
+  const sheetStyle = useMemo(() => [styles.sheet, { transform: [{ translateY }] }], []);
+  const backdropStyle = useMemo(
+    () => [StyleSheet.absoluteFill, { backgroundColor: '#000', opacity: backdropOpa }],
+    []
+  );
+  const ctaStyle = useMemo(() => [styles.ctaButton, { transform: [{ scale: ctaScale }] }], []);
 
   const count  = Array.isArray(sessions) ? sessions.length : 0;
   const item   = count > 0 ? sessions[Math.min(activeIndex, count - 1)] : null;
@@ -290,17 +302,15 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
       onRequestClose={onDismiss}
       statusBarTranslucent
     >
-      <View style={StyleSheet.absoluteFillObject}>
+      <View style={StyleSheet.absoluteFill}>
 
         {/* Backdrop */}
         <TouchableWithoutFeedback onPress={onDismiss}>
-          <Animated.View
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000', opacity: backdropOpa }]}
-          />
+          <Animated.View style={backdropStyle} />
         </TouchableWithoutFeedback>
 
         {/* Sheet */}
-        <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
+        <Animated.View style={sheetStyle}>
 
           {/* ── Drag handle — panHandlers ONLY here ── */}
           <View style={styles.handleRow} {...pan.panHandlers}>
@@ -425,12 +435,12 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
 
             {/* CTA — scale press animation */}
             <TouchableOpacity
-              activeOpacity={0.9}
+              activeOpacity={0.85}
               onPressIn={handleCtaPressIn}
               onPressOut={handleCtaPressOut}
               onPress={() => item && onNavigate(item.sessionId)}
             >
-              <Animated.View style={[styles.ctaButton, { transform: [{ scale: ctaScale }] }]}>
+              <Animated.View style={ctaStyle}>
                 <Text style={styles.ctaText}>{item ? ctaLabelFor(item.pendingType) : 'Go to game'}</Text>
               </Animated.View>
             </TouchableOpacity>
@@ -453,6 +463,22 @@ export default function PendingResultSheet({ visible, sessions, onDismiss, onNav
   );
 }
 
+// The pending-results query polls every 60s and refetches on mutation invalidation;
+// most of those refetches return the same sessions. Skip re-rendering (and re-running
+// the SVG/carousel tree) unless something the sheet actually displays changed.
+function areEqual(prev: Props, next: Props): boolean {
+  if (prev.visible !== next.visible) return false;
+  if (prev.onDismiss !== next.onDismiss) return false;
+  if (prev.onNavigate !== next.onNavigate) return false;
+  if (prev.sessions.length !== next.sessions.length) return false;
+  return prev.sessions.every((s, i) => {
+    const o = next.sessions[i];
+    return s.sessionId === o.sessionId && s.pendingType === o.pendingType;
+  });
+}
+
+export default memo(PendingResultSheet, areEqual);
+
 // ─── Styles ──────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -465,6 +491,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 8,
   },
   handleRow: {
     paddingTop: 12,
@@ -477,7 +508,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#D1D5DB',
   },
   accentStrip: {
     height: 4,

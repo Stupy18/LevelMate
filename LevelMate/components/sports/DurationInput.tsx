@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Keyboard, TextInput } from 'react-native';
 
 interface Props {
@@ -51,14 +52,15 @@ export default function DurationInput({ unit, value, onChange, borderColor, back
 
   const digits = valueToDigits(value);
   const displayText = digits ? digitsToDisplay(digits) : '';
+  const [focused, setFocused] = useState(false);
 
   function handleChange(text: string) {
     const newDigits = text.replace(/\D/g, '').slice(-maxDigits);
     onChange(digitsToSeconds(newDigits));
   }
 
-  const computedBorderColor = borderColor ?? (value ? '#6C47FF' : '#E5E7EB');
-  const computedBgColor = backgroundColor ?? '#F8F9FC';
+  const computedBorderColor = borderColor ?? (focused ? '#6C47FF' : '#E5E7EB');
+  const computedBgColor = backgroundColor ?? '#FFFFFF';
 
   return (
     <TextInput
@@ -69,15 +71,22 @@ export default function DurationInput({ unit, value, onChange, borderColor, back
         paddingVertical: 12,
         fontSize: 20,
         color: '#0D0D14',
-        borderWidth: 1.5,
+        borderWidth: 1,
         borderColor: computedBorderColor,
         textAlign: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: focused ? 0.1 : 0.04,
+        shadowRadius: focused ? 6 : 3,
+        elevation: focused ? 2 : 1,
       }}
       value={displayText}
       onChangeText={handleChange}
       keyboardType="number-pad"
       returnKeyType="done"
       onSubmitEditing={() => Keyboard.dismiss()}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       inputAccessoryViewID={inputAccessoryViewID}
       placeholder={hasHours ? '0:00:00' : '0:00'}
       placeholderTextColor="#C4C4D0"

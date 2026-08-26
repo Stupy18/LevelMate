@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
+import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
 import { getSportColour } from '../../lib/sportColors';
 import { useAuthStore } from '../../stores/authStore';
@@ -89,14 +90,17 @@ export default function SportsOnboardingScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC', alignItems: 'center', justifyContent: 'center' }}>
+      <ScreenBackground>
+      <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color="#6C47FF" size="large" />
       </SafeAreaView>
+      </ScreenBackground>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+    <ScreenBackground>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
       <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 24 }}>
         <Text style={{ color: '#0D0D14', fontSize: 28, fontWeight: '700', marginBottom: 4 }}>
           What sports do you play?
@@ -216,5 +220,6 @@ export default function SportsOnboardingScreen() {
         </Pressable>
       </View>
     </SafeAreaView>
+    </ScreenBackground>
   );
 }

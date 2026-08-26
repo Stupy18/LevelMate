@@ -223,6 +223,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(Map.of("errorCode", "TEAMS_NOT_BALANCED", "message", ex.getMessage()));
     }
 
+    @ExceptionHandler(TeamsLockedResultExistsException.class)
+    public ResponseEntity<Map<String, String>> handleTeamsLockedResultExists(TeamsLockedResultExistsException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("errorCode", "TEAMS_LOCKED_RESULT_EXISTS", "message", ex.getMessage()));
+    }
+
     @ExceptionHandler(TimeConflictException.class)
     public ResponseEntity<Map<String, Object>> handleTimeConflict(TimeConflictException ex) {
         Map<String, Object> conflictingSession = new LinkedHashMap<>();

@@ -276,23 +276,33 @@ public class GameSessionService {
     public GameSessionResponse buildResponse(GameSession session) {
         List<GameParticipant> raw = gameParticipantRepository.findAllBySessionId(session.getId());
 
-        UUID hostId = session.getHost().getId();
-        UUID teamBCaptainId = raw.stream()
-                .filter(p -> p.getTeam() == TeamSide.TEAM_B)
-                .min(java.util.Comparator.comparing(GameParticipant::getJoinedAt))
-                .map(p -> p.getUser().getId())
-                .orElse(null);
+        UUID teamACaptainId = getTeamCaptainId(session.getId(), TeamSide.TEAM_A);
+        UUID teamBCaptainId = getTeamCaptainId(session.getId(), TeamSide.TEAM_B);
 
         List<GameParticipantResponse> participants = raw.stream()
                 .map(p -> {
+                    UUID uid = p.getUser().getId();
                     boolean isCapt =
-                            (p.getTeam() == TeamSide.TEAM_A && p.getUser().getId().equals(hostId)) ||
-                            (p.getTeam() == TeamSide.TEAM_B && teamBCaptainId != null && p.getUser().getId().equals(teamBCaptainId));
+                            (p.getTeam() == TeamSide.TEAM_A && teamACaptainId != null && uid.equals(teamACaptainId)) ||
+                            (p.getTeam() == TeamSide.TEAM_B && teamBCaptainId != null && uid.equals(teamBCaptainId));
                     return GameParticipantResponse.from(p, isCapt);
                 })
                 .toList();
 
         return GameSessionResponse.from(session, participants);
+    }
+
+    /**
+     * The captain of a team is always the earliest-joined player currently on that
+     * team — never the host by default. Shared by buildResponse (display) and the
+     * dispute permission check (enforcement) so they can never disagree.
+     */
+    public UUID getTeamCaptainId(UUID sessionId, TeamSide team) {
+        return gameParticipantRepository.findAllBySessionId(sessionId).stream()
+                .filter(p -> p.getTeam() == team)
+                .min(java.util.Comparator.comparing(GameParticipant::getJoinedAt))
+                .map(p -> p.getUser().getId())
+                .orElse(null);
     }
 
     private User currentUser() {

@@ -14,7 +14,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft } from 'lucide-react-native';
+import ScreenBackground from '../../components/ui/ScreenBackground';
+import { inputFocusedStyle } from '../../lib/theme';
 import { useAuthStore } from '../../stores/authStore';
+
+type FieldName = 'firstName' | 'lastName' | 'email' | 'password' | 'confirmPassword';
 
 interface FieldErrors {
   firstName?: string;
@@ -48,6 +52,7 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [avatarData, setAvatarData] = useState<string | null>(null);
+  const [focusedField, setFocusedField] = useState<FieldName | null>(null);
   const { register, isLoading } = useAuthStore();
 
   async function pickAvatar() {
@@ -97,10 +102,22 @@ export default function RegisterScreen() {
     paddingVertical: 14,
     fontSize: 15,
     marginBottom: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   } as const;
 
+  const fieldStyle = (field: FieldName) => [inputStyle, focusedField === field && inputFocusedStyle];
+  const fieldHandlers = (field: FieldName) => ({
+    onFocus: () => setFocusedField(field),
+    onBlur: () => setFocusedField(null),
+  });
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+    <ScreenBackground>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
@@ -136,7 +153,7 @@ export default function RegisterScreen() {
                     width: 22, height: 22, borderRadius: 11,
                     backgroundColor: '#EF4444',
                     alignItems: 'center', justifyContent: 'center',
-                    borderWidth: 2, borderColor: '#F8F9FC',
+                    borderWidth: 2, borderColor: '#FFFFFF',
                   }}
                 >
                   <Text style={{ color: '#FFFFFF', fontSize: 13, lineHeight: 14, fontWeight: '700' }}>×</Text>
@@ -159,12 +176,13 @@ export default function RegisterScreen() {
 
           {/* First name */}
           <TextInput
-            style={inputStyle}
+            style={fieldStyle('firstName')}
             placeholder="First name"
             placeholderTextColor="#9CA3AF"
             autoCapitalize="words"
             value={firstName}
             onChangeText={setFirstName}
+            {...fieldHandlers('firstName')}
           />
           {fieldErrors.firstName ? (
             <Text style={{ color: '#EF4444', fontSize: 12, marginBottom: 10, marginLeft: 4 }}>{fieldErrors.firstName}</Text>
@@ -172,12 +190,13 @@ export default function RegisterScreen() {
 
           {/* Last name */}
           <TextInput
-            style={inputStyle}
+            style={fieldStyle('lastName')}
             placeholder="Last name"
             placeholderTextColor="#9CA3AF"
             autoCapitalize="words"
             value={lastName}
             onChangeText={setLastName}
+            {...fieldHandlers('lastName')}
           />
           {fieldErrors.lastName ? (
             <Text style={{ color: '#EF4444', fontSize: 12, marginBottom: 10, marginLeft: 4 }}>{fieldErrors.lastName}</Text>
@@ -185,7 +204,7 @@ export default function RegisterScreen() {
 
           {/* Email */}
           <TextInput
-            style={inputStyle}
+            style={fieldStyle('email')}
             placeholder="Email"
             placeholderTextColor="#9CA3AF"
             keyboardType="email-address"
@@ -193,6 +212,7 @@ export default function RegisterScreen() {
             autoComplete="email"
             value={email}
             onChangeText={setEmail}
+            {...fieldHandlers('email')}
           />
           {fieldErrors.email ? (
             <Text style={{ color: '#EF4444', fontSize: 12, marginBottom: 10, marginLeft: 4 }}>{fieldErrors.email}</Text>
@@ -200,12 +220,13 @@ export default function RegisterScreen() {
 
           {/* Password */}
           <TextInput
-            style={inputStyle}
+            style={fieldStyle('password')}
             placeholder="Password"
             placeholderTextColor="#9CA3AF"
             secureTextEntry
             value={password}
             onChangeText={setPassword}
+            {...fieldHandlers('password')}
           />
           {fieldErrors.password ? (
             <Text style={{ color: '#EF4444', fontSize: 12, marginBottom: 10, marginLeft: 4 }}>{fieldErrors.password}</Text>
@@ -213,12 +234,13 @@ export default function RegisterScreen() {
 
           {/* Confirm password */}
           <TextInput
-            style={inputStyle}
+            style={fieldStyle('confirmPassword')}
             placeholder="Confirm password"
             placeholderTextColor="#9CA3AF"
             secureTextEntry
             value={confirmPassword}
             onChangeText={setConfirmPassword}
+            {...fieldHandlers('confirmPassword')}
           />
           {fieldErrors.confirmPassword ? (
             <Text style={{ color: '#EF4444', fontSize: 12, marginBottom: 16, marginLeft: 4 }}>{fieldErrors.confirmPassword}</Text>
@@ -239,5 +261,6 @@ export default function RegisterScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
+    </ScreenBackground>
   );
 }

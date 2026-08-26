@@ -16,24 +16,32 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ConflictModal from '../../components/modals/ConflictModal';
 import LocationPicker, { type SelectedLocation } from '../../components/location/LocationPicker';
 import SportChip from '../../components/sports/SportChip';
+import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
 import { formatSessionDate, formatDuration } from '../../lib/format';
+import { inputFocusedStyle } from '../../lib/theme';
 import { useAuthStore } from '../../stores/authStore';
 import type { ConflictingSession } from '../../types';
+
+const stepperButtonStyle = {
+  width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFFFFF',
+  borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center' as const, justifyContent: 'center' as const,
+  shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
+};
 
 function Stepper({ value, onChange, min, max, step = 1 }: { value: number; onChange: (v: number) => void; min: number; max: number; step?: number }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
       <Pressable
         onPress={() => onChange(Math.max(min, value - step))}
-        style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F2F3F7', borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}
+        style={stepperButtonStyle}
       >
         <Text style={{ color: '#0D0D14', fontSize: 20, lineHeight: 22 }}>−</Text>
       </Pressable>
       <Text style={{ color: '#0D0D14', fontSize: 16, fontWeight: '600', minWidth: 40, textAlign: 'center' }}>{value}</Text>
       <Pressable
         onPress={() => onChange(Math.min(max, value + step))}
-        style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F2F3F7', borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}
+        style={stepperButtonStyle}
       >
         <Text style={{ color: '#0D0D14', fontSize: 20, lineHeight: 22 }}>+</Text>
       </Pressable>
@@ -118,6 +126,7 @@ export default function CreateScreen() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState('');
   const [conflictingSession, setConflictingSession] = useState<ConflictingSession | null>(null);
+  const [focusedField, setFocusedField] = useState<'title' | 'targetPace' | 'description' | null>(null);
 
   const { mutate: createSession, isPending } = useMutation({
     mutationFn: async (payload: object) => {
@@ -186,10 +195,16 @@ export default function CreateScreen() {
     borderWidth: 1,
     borderColor: '#E5E7EB',
     fontSize: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   } as const;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+    <ScreenBackground>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           <Text style={{ color: '#0D0D14', fontSize: 28, fontWeight: '700', marginBottom: 24 }}>Create Game</Text>
@@ -212,11 +227,13 @@ export default function CreateScreen() {
           {/* Title */}
           <FormField label="Title">
             <TextInput
-              style={inputStyle}
+              style={[inputStyle, focusedField === 'title' && inputFocusedStyle]}
               placeholder="e.g. Sunday 3v3 Basketball"
               placeholderTextColor="#9CA3AF"
               value={title}
               onChangeText={setTitle}
+              onFocus={() => setFocusedField('title')}
+              onBlur={() => setFocusedField(null)}
             />
           </FormField>
 
@@ -368,11 +385,13 @@ export default function CreateScreen() {
           {isPerformanceSport && (
             <FormField label="Target Pace">
               <TextInput
-                style={inputStyle}
+                style={[inputStyle, focusedField === 'targetPace' && inputFocusedStyle]}
                 placeholder="e.g. 5:30/km, sub-20min 5K, 100kg squat"
                 placeholderTextColor="#9CA3AF"
                 value={targetPace}
                 onChangeText={setTargetPace}
+                onFocus={() => setFocusedField('targetPace')}
+                onBlur={() => setFocusedField(null)}
               />
               <View style={{ marginTop: 8 }}>
                 <View style={{ backgroundColor: '#EDE9FF', borderRadius: 20, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4 }}>
@@ -390,13 +409,18 @@ export default function CreateScreen() {
           {/* Description */}
           <FormField label="Description">
             <TextInput
-              style={{ ...inputStyle, minHeight: 80, textAlignVertical: 'top' }}
+              style={[
+                { ...inputStyle, minHeight: 80, textAlignVertical: 'top' },
+                focusedField === 'description' && inputFocusedStyle,
+              ]}
               placeholder="Optional description"
               placeholderTextColor="#9CA3AF"
               multiline
               maxLength={500}
               value={description}
               onChangeText={setDescription}
+              onFocus={() => setFocusedField('description')}
+              onBlur={() => setFocusedField(null)}
             />
             <Text style={{ color: '#9CA3AF', fontSize: 11, textAlign: 'right', marginTop: 4 }}>{description.length}/500</Text>
           </FormField>
@@ -431,5 +455,6 @@ export default function CreateScreen() {
         onDismiss={() => setConflictingSession(null)}
       />
     </SafeAreaView>
+    </ScreenBackground>
   );
 }

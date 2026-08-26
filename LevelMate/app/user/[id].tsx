@@ -6,6 +6,7 @@ import { ChevronLeft } from 'lucide-react-native';
 import LevelDots from '../../components/sports/LevelDots';
 import Avatar from '../../components/ui/Avatar';
 import EloBadge from '../../components/ui/EloBadge';
+import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
 import type { UserProfile } from '../../types';
 
@@ -27,14 +28,15 @@ export default function UserProfileScreen() {
     padding: 14,
     marginBottom: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 3,
   } as const;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+    <ScreenBackground>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 40 }}>
 
         {/* Back button */}
@@ -115,5 +117,6 @@ export default function UserProfileScreen() {
         )}
       </ScrollView>
     </SafeAreaView>
+    </ScreenBackground>
   );
 }

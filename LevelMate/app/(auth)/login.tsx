@@ -11,12 +11,15 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ScreenBackground from '../../components/ui/ScreenBackground';
+import { inputFocusedStyle } from '../../lib/theme';
 import { useAuthStore } from '../../stores/authStore';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
   const { login, isLoading } = useAuthStore();
 
   async function handleSignIn() {
@@ -40,10 +43,16 @@ export default function LoginScreen() {
     paddingVertical: 14,
     fontSize: 15,
     marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   } as const;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+    <ScreenBackground>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 24 }}
@@ -57,7 +66,7 @@ export default function LoginScreen() {
 
         {/* Email */}
         <TextInput
-          style={inputStyle}
+          style={[inputStyle, focusedField === 'email' && inputFocusedStyle]}
           placeholder="Email"
           placeholderTextColor="#9CA3AF"
           keyboardType="email-address"
@@ -65,17 +74,21 @@ export default function LoginScreen() {
           autoComplete="email"
           value={email}
           onChangeText={(v) => { setEmail(v); setError(''); }}
+          onFocus={() => setFocusedField('email')}
+          onBlur={() => setFocusedField(null)}
         />
 
         {/* Password */}
         <TextInput
-          style={inputStyle}
+          style={[inputStyle, focusedField === 'password' && inputFocusedStyle]}
           placeholder="Password"
           placeholderTextColor="#9CA3AF"
           secureTextEntry
           autoComplete="password"
           value={password}
           onChangeText={(v) => { setPassword(v); setError(''); }}
+          onFocus={() => setFocusedField('password')}
+          onBlur={() => setFocusedField(null)}
         />
 
         {/* Inline error */}
@@ -108,5 +121,6 @@ export default function LoginScreen() {
         </Pressable>
       </KeyboardAvoidingView>
     </SafeAreaView>
+    </ScreenBackground>
   );
 }

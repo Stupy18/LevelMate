@@ -39,10 +39,11 @@ import Avatar from '../../components/ui/Avatar';
 import DurationInput from '../../components/sports/DurationInput';
 import ConflictModal from '../../components/modals/ConflictModal';
 import StatusBadge from '../../components/ui/StatusBadge';
+import ScreenBackground from '../../components/ui/ScreenBackground';
 import api from '../../lib/api';
 import { formatDuration, formatSessionDate } from '../../lib/format';
 import { useAuthStore } from '../../stores/authStore';
-import type { ConflictingSession, GameParticipant, GameResult, GameSession } from '../../types';
+import type { ConflictingSession, GameParticipant, GameResult, GameSession, PendingResult } from '../../types';
 
 type WinnerTeam = 'TEAM_A' | 'TEAM_B' | 'DRAW';
 type LucideIconComponent = React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
@@ -125,6 +126,14 @@ export default function SessionDetailScreen() {
     queryClient.invalidateQueries({ queryKey: ['my-sessions'] });
   };
 
+  // Instantly drops this session from the pending-reminders list so the sheet/banner
+  // updates the moment the user acts, instead of waiting for the next 60s poll.
+  const removeFromPendingResults = () => {
+    queryClient.setQueryData<PendingResult[]>(['pending-results'], (old) =>
+      (old ?? []).filter((r) => r.sessionId !== id)
+    );
+  };
+
   const { mutate: joinGame, isPending: isJoining } = useMutation({
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/join`),
     onSuccess: invalidate,
@@ -166,6 +175,7 @@ export default function SessionDetailScreen() {
       scoreTeamB?: number;
     }) =>
       api.post(`/api/v1/game-sessions/${id}/result`, { winnerTeam, scoreTeamA, scoreTeamB }),
+    onMutate: removeFromPendingResults,
     onSuccess: () => {
       setResultSubmittedLocally(true);
       setShowResultModal(false);
@@ -180,6 +190,7 @@ export default function SessionDetailScreen() {
 
   const { mutate: confirmResult, isPending: isConfirming } = useMutation({
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/result/confirm`),
+    onMutate: removeFromPendingResults,
     onSuccess: () => {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['pending-results'] });
@@ -196,6 +207,7 @@ export default function SessionDetailScreen() {
       scoreTeamB?: number;
     }) =>
       api.post(`/api/v1/game-sessions/${id}/result/dispute`, { winnerTeam, scoreTeamA, scoreTeamB }),
+    onMutate: removeFromPendingResults,
     onSuccess: () => {
       setResultSubmittedLocally(true);
       setShowResultModal(false);
@@ -210,6 +222,7 @@ export default function SessionDetailScreen() {
 
   const { mutate: rejectEscalate, isPending: isRejecting } = useMutation({
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/result/dispute`),
+    onMutate: removeFromPendingResults,
     onSuccess: () => {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['pending-results'] });
@@ -219,6 +232,7 @@ export default function SessionDetailScreen() {
 
   const { mutate: acceptCounter, isPending: isAccepting } = useMutation({
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/result/accept-counter`),
+    onMutate: removeFromPendingResults,
     onSuccess: () => {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['pending-results'] });
@@ -274,7 +288,12 @@ export default function SessionDetailScreen() {
 
   const { mutate: markPbSubmitted, isPending: isMarkingPb } = useMutation({
     mutationFn: () => api.post(`/api/v1/game-sessions/${id}/pb-submitted`),
-    onSuccess: () => { invalidate(); setShowPbSheet(false); },
+    onMutate: removeFromPendingResults,
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['pending-results'] });
+      setShowPbSheet(false);
+    },
     onError: (err: any) => Alert.alert('Error', err?.response?.data?.message ?? 'Failed to submit.'),
   });
 
@@ -288,8 +307,10 @@ export default function SessionDetailScreen() {
       }
       await api.post(`/api/v1/game-sessions/${id}/pb-submitted`);
     },
+    onMutate: removeFromPendingResults,
     onSuccess: () => {
       invalidate();
+      queryClient.invalidateQueries({ queryKey: ['pending-results'] });
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       setShowPbSheet(false);
     },
@@ -298,6 +319,7 @@ export default function SessionDetailScreen() {
 
   const { mutate: acknowledgeSession } = useMutation({
     mutationFn: () => api.patch(`/api/v1/game-sessions/${id}/acknowledge`),
+    onMutate: removeFromPendingResults,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pending-results'] }),
   });
 
@@ -468,9 +490,11 @@ export default function SessionDetailScreen() {
 
   if (isLoading || !session) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC', alignItems: 'center', justifyContent: 'center' }}>
+      <ScreenBackground>
+      <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color="#6C47FF" size="large" />
       </SafeAreaView>
+      </ScreenBackground>
     );
   }
 
@@ -491,16 +515,17 @@ export default function SessionDetailScreen() {
     borderRadius: 16,
     padding: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 3,
   } as const;
 
   function openMaps() {
-    if (session.locationLat == null || session.locationLng == null) return;
-    const lat = session.locationLat;
-    const lng = session.locationLng;
+    const s = session!;
+    if (s.locationLat == null || s.locationLng == null) return;
+    const lat = s.locationLat;
+    const lng = s.locationLng;
     const url = Platform.OS === 'ios'
       ? `maps://?q=${lat},${lng}`
       : `geo:${lat},${lng}?q=${lat},${lng}`;
@@ -510,8 +535,9 @@ export default function SessionDetailScreen() {
   }
 
   function renderParticipants() {
-    const participants = session.participants ?? [];
-    const isEloCompetitive = session.ratingType === 'ELO_COMPETITIVE' || session.ratingType == null;
+    const s = session!;
+    const participants = s.participants ?? [];
+    const isEloCompetitive = s.ratingType === 'ELO_COMPETITIVE' || s.ratingType == null;
     const teamA = participants.filter(p => p.team === 'TEAM_A');
     const teamB = participants.filter(p => p.team === 'TEAM_B');
     const unassigned = participants.filter(p => p.team == null);
@@ -543,7 +569,7 @@ export default function SessionDetailScreen() {
             <View style={{ flex: 1, gap: 4 }}>
               {teamA.map(p => {
                 const isMe = p.userId === user?.id;
-                const isThisHost = p.userId === session.hostUserId;
+                const isThisHost = p.userId === s.hostUserId;
                 return (
                   <View
                     key={p.participantId}
@@ -616,7 +642,7 @@ export default function SessionDetailScreen() {
             <View style={{ flex: 1, gap: 4 }}>
               {teamB.map(p => {
                 const isMe = p.userId === user?.id;
-                const isThisHost = p.userId === session.hostUserId;
+                const isThisHost = p.userId === s.hostUserId;
                 return (
                   <View
                     key={p.participantId}
@@ -662,7 +688,7 @@ export default function SessionDetailScreen() {
     return (
       <View style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
         {participants.map((p, idx) => {
-          const isThisHost = p.userId === session.hostUserId;
+          const isThisHost = p.userId === s.hostUserId;
           const isMe = p.userId === user?.id;
           return (
             <Pressable
@@ -692,7 +718,8 @@ export default function SessionDetailScreen() {
   }
 
   function renderActionButtons() {
-    const status = session.status;
+    const s = session!;
+    const status = s.status;
 
     if (status === 'OPEN' && !isParticipant) {
       return (
@@ -725,7 +752,7 @@ export default function SessionDetailScreen() {
     if ((status === 'OPEN' || status === 'FULL') && isHost) {
       return (
         <View style={{ gap: 12 }}>
-          {isPast && session.participantCount >= session.minPlayers && (
+          {isPast && s.participantCount >= s.minPlayers && (
             <Pressable
               onPress={() => completeSession()}
               disabled={isCompleting}
@@ -787,7 +814,7 @@ export default function SessionDetailScreen() {
     }
 
     // Non-ELO completed: no result reporting
-    if (status === 'COMPLETED' && session.ratingType !== 'ELO_COMPETITIVE' && session.ratingType != null) {
+    if (status === 'COMPLETED' && s.ratingType !== 'ELO_COMPETITIVE' && s.ratingType != null) {
       return null;
     }
 
@@ -820,7 +847,7 @@ export default function SessionDetailScreen() {
 
     // ── State: PENDING_CONFIRMATION ──────────────────────────────────────────
     if (status === 'COMPLETED' && result?.status === 'PENDING_CONFIRMATION') {
-      const participants = session.participants ?? [];
+      const participants = s.participants ?? [];
       const teamAPlayers = participants.filter(p => p.team === 'TEAM_A');
       const teamBPlayers = participants.filter(p => p.team === 'TEAM_B');
       const winnerLabel =
@@ -830,7 +857,7 @@ export default function SessionDetailScreen() {
       if (isReporter) {
         // Player A waiting for Player B to respond
         return (
-          <View style={{ backgroundColor: '#F8F9FC', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E5E7EB', gap: 8 }}>
+          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, borderWidth: 0.5, borderColor: '#F0F0F3', gap: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3 }}>
             <Text style={{ color: '#9CA3AF', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 }}>
               Your Reported Result
             </Text>
@@ -857,7 +884,7 @@ export default function SessionDetailScreen() {
 
       return (
         <View style={{ gap: 12 }}>
-          <View style={{ backgroundColor: '#F8F9FC', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E5E7EB', gap: 10 }}>
+          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, borderWidth: 0.5, borderColor: '#F0F0F3', gap: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3 }}>
             <Text style={{ color: '#9CA3AF', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 }}>
               Reported Result
             </Text>
@@ -910,7 +937,7 @@ export default function SessionDetailScreen() {
               )}
             </Pressable>
           ) : (
-            <View style={{ backgroundColor: '#F8F9FC', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#E5E7EB' }}>
+            <View style={{ backgroundColor: '#FFFFFF', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
               <Text style={{ color: '#6B7280', fontSize: 13, lineHeight: 20 }}>
                 Your captain can propose a different score if they disagree
                 {opposingCaptain ? ` — ${shortName(opposingCaptain.displayName)}` : ''}.
@@ -923,7 +950,7 @@ export default function SessionDetailScreen() {
 
     // ── State: COUNTER_PROPOSED ──────────────────────────────────────────────
     if (status === 'COMPLETED' && result?.status === 'COUNTER_PROPOSED') {
-      const participants = session.participants ?? [];
+      const participants = s.participants ?? [];
       const teamAPlayers = participants.filter(p => p.team === 'TEAM_A');
       const teamBPlayers = participants.filter(p => p.team === 'TEAM_B');
 
@@ -952,7 +979,7 @@ export default function SessionDetailScreen() {
 
         return (
           <View style={{ gap: 12 }}>
-            <View style={{ backgroundColor: '#F8F9FC', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#FCA5A5', gap: 10 }}>
+            <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#FCA5A5', gap: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3 }}>
               <Text style={{ color: '#EF4444', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 }}>
                 Counter-Score Proposed
               </Text>
@@ -1091,7 +1118,8 @@ export default function SessionDetailScreen() {
   })();
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+    <ScreenBackground>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
       {Platform.OS === 'ios' && (
         <InputAccessoryView nativeID="session-input-done">
           <View style={{ backgroundColor: '#F8F8F8', borderTopWidth: 0.5, borderTopColor: '#E0E0E0', padding: 8, alignItems: 'flex-end' }}>
@@ -1267,11 +1295,12 @@ export default function SessionDetailScreen() {
                   </Text>
                   <TextInput
                     style={{
-                      backgroundColor: derivedWinner === 'TEAM_A' ? '#EDE9FF' : '#F8F9FC',
+                      backgroundColor: derivedWinner === 'TEAM_A' ? '#EDE9FF' : '#FFFFFF',
                       borderWidth: 1.5,
                       borderColor: derivedWinner === 'TEAM_A' ? '#6C47FF' : (scoreA ? '#6C47FF' : '#E5E7EB'),
                       borderRadius: 14, paddingVertical: 12, width: '100%',
                       textAlign: 'center', fontSize: 30, fontWeight: '700', color: '#0D0D14',
+                      shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
                     }}
                     placeholder="—"
                     placeholderTextColor="#D1D5DB"
@@ -1309,11 +1338,12 @@ export default function SessionDetailScreen() {
                   </Text>
                   <TextInput
                     style={{
-                      backgroundColor: derivedWinner === 'TEAM_B' ? '#FFF1E6' : '#F8F9FC',
+                      backgroundColor: derivedWinner === 'TEAM_B' ? '#FFF1E6' : '#FFFFFF',
                       borderWidth: 1.5,
                       borderColor: derivedWinner === 'TEAM_B' ? '#FF6B35' : (scoreB ? '#FF6B35' : '#E5E7EB'),
                       borderRadius: 14, paddingVertical: 12, width: '100%',
                       textAlign: 'center', fontSize: 30, fontWeight: '700', color: '#0D0D14',
+                      shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
                     }}
                     placeholder="—"
                     placeholderTextColor="#D1D5DB"
@@ -1376,7 +1406,7 @@ export default function SessionDetailScreen() {
         animationType="slide"
         onRequestClose={() => setShowRebalanceModal(false)}
       >
-        <View style={{ flex: 1, backgroundColor: '#F8F9FC' }}>
+        <ScreenBackground>
           {/* Header */}
           <SafeAreaView style={{ backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 }}>
@@ -1507,7 +1537,7 @@ export default function SessionDetailScreen() {
               <Text style={{ color: '#9CA3AF', fontSize: 14 }}>Cancel</Text>
             </Pressable>
           </View>
-        </View>
+        </ScreenBackground>
       </Modal>
 
       {/* PB Update Sheet */}
@@ -1605,12 +1635,13 @@ export default function SessionDetailScreen() {
                     ) : (
                       <TextInput
                         style={{
-                          backgroundColor: isImproved ? '#F0FDF4' : '#F8F9FC',
+                          backgroundColor: isImproved ? '#F0FDF4' : '#FFFFFF',
                           color: '#0D0D14',
                           borderRadius: 12, padding: 12,
                           borderWidth: 1.5,
                           borderColor: isImproved ? '#22C55E' : '#E5E7EB',
                           fontSize: 15,
+                          shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
                         }}
                         placeholder={current ?? 'Enter value'}
                         placeholderTextColor="#9CA3AF"
@@ -1658,5 +1689,6 @@ export default function SessionDetailScreen() {
         onDismiss={() => setConflictingSession(null)}
       />
     </SafeAreaView>
+    </ScreenBackground>
   );
 }

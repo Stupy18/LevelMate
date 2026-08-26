@@ -85,8 +85,11 @@ export default function LocationPicker({ value, onSelect }: Props) {
     <View style={{ zIndex: 999 }}>
       <View style={{
         flexDirection: 'row', alignItems: 'center', gap: 10,
-        backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB',
-        paddingHorizontal: 14, height: 48,
+        backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1,
+        borderColor: focused ? '#6C47FF' : '#E5E7EB',
+        paddingHorizontal: 14, height: 50,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: focused ? 0.1 : 0.04, shadowRadius: focused ? 6 : 3, elevation: focused ? 2 : 1,
       }}>
         <MapPin size={16} color="#9CA3AF" />
         <TextInput
@@ -107,7 +110,7 @@ export default function LocationPicker({ value, onSelect }: Props) {
 
       {showDropdown && (
         <View style={{
-          position: 'absolute', top: 52, left: 0, right: 0, zIndex: 999,
+          position: 'absolute', top: 54, left: 0, right: 0, zIndex: 999,
           backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB',
           shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.08, shadowRadius: 12, elevation: 8,
